@@ -54,7 +54,7 @@ The goal is to reduce the barrier to browser test automation while still using P
 
 ## Features
 
-### 🌐 Website Launcher
+### Website Launcher
 
 Enter a website URL and open it inside the application's controlled browser.
 
@@ -64,7 +64,7 @@ Enter a website URL and open it inside the application's controlled browser.
 * Form submission
 * File uploads where supported
 
-### 🔴 Action Recorder
+### Action Recorder
 
 Record meaningful browser actions while interacting with a website.
 
@@ -90,7 +90,7 @@ instead of:
 Click → X: 524, Y: 318
 ```
 
-### ▶️ Test Replay
+### Test Replay
 
 Recorded actions can be replayed automatically through Playwright.
 
@@ -109,7 +109,7 @@ Result: PASS
 
 If an action fails, WebTestFlow will provide information about the failed step and can capture a screenshot of the failure.
 
-### ✅ Test Assertions
+### Test Assertions
 
 Tests can include basic assertions such as:
 
@@ -135,7 +135,7 @@ Assert → URL contains "/dashboard"
 Assert → "Welcome" is visible
 ```
 
-### 🔐 Security Header Analyzer
+### Security Header Analyzer
 
 WebTestFlow can analyze common HTTP security headers for a website.
 
@@ -165,7 +165,7 @@ The analyzer explains what each header does and provides general configuration r
 
 **Note:** This feature is a configuration check, not a complete security assessment.
 
-### 📊 Test Reports
+### Test Reports
 
 Test execution can provide:
 
@@ -175,7 +175,7 @@ Test execution can provide:
 * Screenshots
 * Security analysis results
 
-### 💾 Test Storage
+### Test Storage
 
 Recorded tests are stored in a structured format.
 
@@ -183,7 +183,7 @@ The initial implementation uses JSON files.
 
 SQLite may be introduced later if test management becomes more complex.
 
-### 📤 Playwright Export
+### Playwright Export
 
 Recorded tests can eventually be exported as Playwright code.
 
@@ -265,40 +265,6 @@ Used for:
 
 ---
 
-## Architecture
-
-```text
-┌──────────────────────────────────────────────┐
-│                  WebTestFlow                    │
-│                                              │
-│  ┌────────────────────────────────────────┐  │
-│  │              React UI                 │  │
-│  │                                        │  │
-│  │ URL Bar | Browser | Test Flow | Report│  │
-│  └───────────────────┬────────────────────┘  │
-│                      │                       │
-│                  Electron IPC                │
-│                      │                       │
-│  ┌───────────────────▼────────────────────┐  │
-│  │         Electron Main Process          │  │
-│  │                                        │  │
-│  │ Test Manager                           │  │
-│  │ Security Scanner                       │  │
-│  │ File Storage                           │  │
-│  │ Playwright Controller                  │  │
-│  └──────────────┬──────────────┬──────────┘  │
-│                 │              │             │
-│                 ▼              ▼             │
-│            Playwright    HTTP Analyzer       │
-│                 │              │             │
-└─────────────────┼──────────────┼─────────────┘
-                  │              │
-                  ▼              ▼
-              Chromium       HTTP Response
-```
-
----
-
 ## Project Structure
 
 ```text
@@ -340,35 +306,35 @@ WebTestFlow/
 
 ## Development Roadmap
 
-### Phase 1 — Desktop Application
+### Phase 1 - Desktop Application
 
 * [x] Electron application
 * [x] React UI
 * [x] URL input
 * [x] Basic navigation
 
-### Phase 2 — Playwright Integration
+### Phase 2 - Playwright Integration
 
 * [ ] Launch Chromium
 * [ ] Navigate to URLs
 * [ ] Close browser
 * [ ] Basic browser interaction
 
-### Phase 3 — Action Recording
+### Phase 3 - Action Recording
 
 * [ ] Record clicks
 * [ ] Record text input
 * [ ] Record navigation
 * [ ] Convert browser events into test actions
 
-### Phase 4 — Test Replay
+### Phase 4 - Test Replay
 
 * [ ] Run recorded tests
 * [ ] Stop tests
 * [ ] Pass/fail status
 * [ ] Error handling
 
-### Phase 5 — Security Analyzer
+### Phase 5 - Security Analyzer
 
 * [ ] Strict-Transport-Security
 * [ ] Content-Security-Policy
@@ -377,7 +343,7 @@ WebTestFlow/
 * [ ] Referrer-Policy
 * [ ] Permissions-Policy
 
-### Phase 6 — Assertions
+### Phase 6 - Assertions
 
 * [ ] URL assertions
 * [ ] Text visibility
@@ -385,7 +351,7 @@ WebTestFlow/
 * [ ] Page title
 * [ ] Element state
 
-### Phase 7 — Reporting
+### Phase 7 - Reporting
 
 * [ ] Screenshots
 * [ ] Execution logs
@@ -393,48 +359,10 @@ WebTestFlow/
 * [ ] Pass/fail summary
 * [ ] Security report
 
-### Phase 8 — Playwright Export
+### Phase 8 - Playwright Export
 
 * [ ] Generate Playwright test code
 * [ ] Export generated tests
-
----
-
-## Initial MVP
-
-The first version intentionally focuses on the core workflow rather than implementing every planned feature.
-
-### MVP Goal
-
-> Open a website, interact with it, record a few actions, and replay them.
-
-The initial interface will contain:
-
-```text
-┌──────────────────────────────────┐
-│             WebTestFlow             │
-│                                  │
-│ URL: [ https://example.com ]     │
-│ [Open]                           │
-│                                  │
-│ ┌──────────────────────────────┐ │
-│ │                              │ │
-│ │          Browser             │ │
-│ │                              │ │
-│ │          Website             │ │
-│ │                              │ │
-│ └──────────────────────────────┘ │
-│                                  │
-│ [🔴 Record] [⏹ Stop] [▶ Replay] │
-│                                  │
-│ Actions:                         │
-│ 1. Click Login                   │
-│ 2. Fill Email                    │
-│ 3. Click Sign In                 │
-└──────────────────────────────────┘
-```
-
-Additional features will be built on top of this foundation.
 
 ---
 
@@ -466,17 +394,3 @@ Playwright
   ↓
 Chromium
 ```
-
----
-
-## Project Status
-
-🚧 **In Development**
-
-The project is being developed incrementally, starting with the browser automation MVP before expanding into test assertions, security analysis, reporting, and Playwright code export.
-
----
-
-## License
-
-License information will be added when the project is ready for release.
