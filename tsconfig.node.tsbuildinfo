@@ -1,0 +1,1 @@
+{"root":["./src/main/main.ts","./src/main/browser/browser-manager.ts","./src/main/ipc/browser-handlers.ts","./src/preload/preload.ts"],"version":"5.9.3"}
