@@ -19,7 +19,7 @@ function createWindow(): void {
     }
   });
 
-  browserManager = new BrowserManager(mainWindow);
+  browserManager = new BrowserManager();
   registerBrowserHandlers(browserManager);
 
   if (process.env.VITE_DEV_SERVER_URL) {

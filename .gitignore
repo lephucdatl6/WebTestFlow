@@ -5,3 +5,5 @@ dist-electron/
 .env
 .env.*
 !.env.example
+Note.md
+chromium.zip

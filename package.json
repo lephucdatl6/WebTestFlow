@@ -9,6 +9,8 @@
     "start": "electron ."
   },
   "dependencies": {
+    "lucide-react": "^1.47.0",
+    "playwright": "^1.63.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

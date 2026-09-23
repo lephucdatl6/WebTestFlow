@@ -1,23 +1,23 @@
-import { BrowserWindow, WebContentsView } from 'electron';
+import { chromium, Browser, Page } from 'playwright';
 
 export class BrowserManager {
-	private readonly view: WebContentsView;
+	private browser: Browser | null = null;
+	private page: Page | null = null;
 
-	public constructor(private readonly window: BrowserWindow) {
-		this.view = new WebContentsView({
-			webPreferences: {
-				contextIsolation: true,
-				nodeIntegration: false
-			}
-		});
+	public async launch(): Promise<void> {
+		if (!this.browser) {
+			this.browser = await chromium.launch({ headless: false });
+		}
 
-		this.window.contentView.addChildView(this.view);
-		this.updateBounds();
-		this.window.on('resize', () => this.updateBounds());
-		void this.openUrl('https://example.com');
+		if (!this.page || this.page.isClosed()) {
+			this.page = await this.browser.newPage();
+			this.page.setDefaultTimeout(5000);
+		}
 	}
 
 	public async openUrl(rawUrl: string): Promise<string> {
+		await this.launch();
+
 		const input = rawUrl.trim();
 		let url: URL;
 
@@ -31,38 +31,51 @@ export class BrowserManager {
 			throw new Error('Only HTTP and HTTPS URLs are supported.');
 		}
 
-		await this.view.webContents.loadURL(url.toString());
-		return this.view.webContents.getURL();
+		await this.page!.goto(url.toString(), { waitUntil: 'domcontentloaded' });
+		return this.page!.url();
 	}
 
-	public goBack(): void {
-		if (this.view.webContents.navigationHistory.canGoBack()) {
-			this.view.webContents.navigationHistory.goBack();
+	public async click(selector: string): Promise<void> {
+		await this.launch();
+		await this.requirePage().locator(selector).click();
+	}
+
+	public async fill(selector: string, value: string): Promise<void> {
+		await this.launch();
+		await this.requirePage().locator(selector).fill(value);
+	}
+
+	public async goBack(): Promise<void> {
+		await this.launch();
+		await this.requirePage().goBack();
+	}
+
+	public async goForward(): Promise<void> {
+		await this.launch();
+		await this.requirePage().goForward();
+	}
+
+	public async reload(): Promise<void> {
+		await this.launch();
+		await this.requirePage().reload();
+	}
+
+	public async close(): Promise<void> {
+		await this.browser?.close();
+		this.browser = null;
+		this.page = null;
+	}
+
+	public async dispose(): Promise<void> {
+		await this.close();
+	}
+
+	private requirePage(): Page {
+		if (!this.page || this.page.isClosed()) {
+			throw new Error('Launch the browser before interacting with a page.');
 		}
+
+		return this.page;
 	}
 
-	public goForward(): void {
-		if (this.view.webContents.navigationHistory.canGoForward()) {
-			this.view.webContents.navigationHistory.goForward();
-		}
-	}
-
-	public reload(): void {
-		this.view.webContents.reload();
-	}
-
-	public dispose(): void {
-		this.window.contentView.removeChildView(this.view);
-		this.view.webContents.close();
-	}
-
-	private updateBounds(): void {
-		const bounds = this.window.getContentBounds();
-		this.view.setBounds({
-			x: 0,
-			y: 64,
-			width: bounds.width,
-			height: Math.max(0, bounds.height - 64)
-		});
-	}
 }
