@@ -5,6 +5,24 @@ declare global {
     webTestFlow: {
       launch: () => Promise<void>;
       openUrl: (url: string) => Promise<string>;
+      startRecording: () => Promise<void>;
+      stopRecording: () => Promise<Array<{
+        type: string;
+        selector?: string;
+        playwright?: string;
+        value?: string;
+        url?: string;
+        description?: string;
+      }>>;
+      getRecordingActions: () => Promise<Array<{
+        type: string;
+        selector?: string;
+        playwright?: string;
+        value?: string;
+        url?: string;
+        description?: string;
+      }>>;
+      isBrowserOpen: () => Promise<boolean>;
       close: () => Promise<void>;
       goBack: () => Promise<void>;
       goForward: () => Promise<void>;

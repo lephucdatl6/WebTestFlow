@@ -62,33 +62,43 @@ Enter a website URL and open it inside the application's controlled browser.
 * Website navigation
 * Browser interaction
 * Form submission
-* File uploads where supported
+* File uploads are planned
 
 ### Action Recorder
 
-Record meaningful browser actions while interacting with a website.
+Record meaningful browser actions while interacting with a website. The current recorder supports:
 
-Currently planned actions include:
+- Navigation
+- Clicks
+- Text input
+- Enter/submit actions
+- Live action updates
+- Consecutive fill merging for the same field
+- Structured JSON view of recorded actions
 
-* Navigation
-* Click
-* Text input
-* Select
-* Checkbox interaction
+The recorder stores both a **CSS selector** and a **semantic Playwright locator** when one can be identified.
 
-It will also include an element picker that can identify clicked page elements and generate stable CSS selectors automatically. For example, a Reddit search field can be recorded as:
+For example, clicking the Home link can be recorded as:
 
 ```text
-Action: Fill
-Selector: textarea[name="q"]
-Value: [entered text]
+CLICK → getByRole('link', { name: "Home" })
 ```
 
-Generated selectors should prefer stable attributes such as `id`, `name`, `placeholder`, and `aria-label` over generated class names. WebTestFlow should verify that each selector identifies one element before saving the action.
+The underlying action data contains both selector formats:
 
-WebTestFlow focuses on semantic information instead of relying only on mouse coordinates.
+```json
+[
+     {
+          "type": "click",
+          "selector": "a[href=\"https://example.com/?feed=home\"]",
+          "playwright": "getByRole('link', { name: \"Home\" })"
+     }
+]
+```
 
-For example:
+Selector discovery prioritizes stable attributes and semantic information such as `id`, `name`, `placeholder`, `aria-label`, `href`, `alt`, and accessible text before falling back to less specific selectors. Custom elements are also inspected for nested interactive elements.
+
+Recorded actions currently remain in memory during the active recording session. They can be reviewed in the action list or structured JSON view, then downloaded as a `webtestflow-recording.json` file. Long URLs and selectors are shortened in the action list but remain complete in JSON. The recorder focuses on **semantic browser interactions rather than mouse coordinates**:
 
 ```text
 Click → Button "Sign In"
@@ -100,9 +110,11 @@ instead of:
 Click → X: 524, Y: 318
 ```
 
+Same-tab navigation caused directly by a link click is omitted from the action list. Manual URL navigation and new-tab navigation remain recorded.
+
 ### Test Replay
 
-Recorded actions can be replayed automatically through Playwright.
+Recorded actions are intended to be replayed automatically through Playwright. Replay is planned for Phase 5.
 
 Example:
 
@@ -121,7 +133,7 @@ If an action fails, WebTestFlow will provide information about the failed step a
 
 ### Test Assertions
 
-Tests can include basic assertions such as:
+Future tests are planned to support basic assertions such as:
 
 * Verify text is visible
 * Verify an element exists
@@ -147,7 +159,7 @@ Assert → "Welcome" is visible
 
 ### Security Header Analyzer
 
-WebTestFlow can analyze common HTTP security headers for a website.
+WebTestFlow is planned to analyze common HTTP security headers for a website.
 
 The initial headers include:
 
@@ -177,7 +189,7 @@ The analyzer explains what each header does and provides general configuration r
 
 ### Test Reports
 
-Test execution can provide:
+Future test execution can provide:
 
 * Pass/fail status
 * Execution logs
@@ -187,15 +199,11 @@ Test execution can provide:
 
 ### Test Storage
 
-Recorded tests are stored in a structured format.
-
-The initial implementation uses JSON files.
-
-SQLite may be introduced later if test management becomes more complex.
+Recorded actions can currently be downloaded as a structured JSON file. Automatic recording storage is planned for Phase 4. SQLite may be introduced later if test management becomes more complex.
 
 ### Playwright Export
 
-Recorded tests can eventually be exported as Playwright code.
+Recorded tests are planned to be exportable as Playwright code in Phase 4.
 
 Example:
 
@@ -269,9 +277,9 @@ Used for:
 
 ### Storage
 
-**Initial:** JSON
+**Current:** JSON export
 
-**Planned:** SQLite
+**Planned:** Automatic recording persistence and SQLite
 
 ---
 
@@ -332,21 +340,38 @@ WebTestFlow/
 
 ### Phase 3 - Action Recording
 
-* [ ] Record clicks
-* [ ] Record text input
-* [ ] Record navigation
-* [ ] Convert browser events into test actions
-* [ ] Pick elements directly from the browser
-* [ ] Generate stable, unique CSS selectors
+* [x] Record clicks
+* [x] Record text input
+* [x] Record navigation
+* [x] Record Enter/submit actions
+* [x] Convert browser events into structured test actions
+* [x] Update the action list while recording
+* [x] Merge consecutive fills for the same selector
+* [x] Generate semantic Playwright locators when possible
+* [x] Handle custom elements and nested accessible controls
+* [x] Review recorded actions as formatted JSON
+* [x] Display live recording status and action updates
+* [x] Keep CSS selectors and semantic Playwright locators in structured actions
+* [x] Download recorded actions as JSON
+* [x] Number and align recorded action steps
+* [x] Detect browser window disconnects
+* [x] Remove same-tab navigation events that duplicate a link-click navigation
 
-### Phase 4 - Test Replay
+### Phase 4 - Recording Export and Storage
+
+* [ ] Generate Playwright test code
+* [ ] Export generated tests
+* [ ] Automatically save recordings to JSON files
+* [ ] Load saved recordings when needed
+
+### Phase 5 - Test Replay
 
 * [ ] Run recorded tests
 * [ ] Stop tests
 * [ ] Pass/fail status
 * [ ] Error handling
 
-### Phase 5 - Security Analyzer
+### Phase 6 - Security Analyzer
 
 * [ ] Strict-Transport-Security
 * [ ] Content-Security-Policy
@@ -355,7 +380,7 @@ WebTestFlow/
 * [ ] Referrer-Policy
 * [ ] Permissions-Policy
 
-### Phase 6 - Assertions
+### Phase 7 - Assertions
 
 * [ ] URL assertions
 * [ ] Text visibility
@@ -363,18 +388,13 @@ WebTestFlow/
 * [ ] Page title
 * [ ] Element state
 
-### Phase 7 - Reporting
+### Phase 8 - Reporting
 
 * [ ] Screenshots
 * [ ] Execution logs
 * [ ] Test duration
 * [ ] Pass/fail summary
 * [ ] Security report
-
-### Phase 8 - Playwright Export
-
-* [ ] Generate Playwright test code
-* [ ] Export generated tests
 
 ---
 

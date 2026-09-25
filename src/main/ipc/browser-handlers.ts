@@ -7,6 +7,10 @@ export function registerBrowserHandlers(browserManager: BrowserManager): void {
 	});
 
 	ipcMain.handle('browser:launch', () => browserManager.launch());
+	ipcMain.handle('browser:start-recording', () => browserManager.startRecording());
+	ipcMain.handle('browser:stop-recording', () => browserManager.stopRecording());
+	ipcMain.handle('browser:get-recording-actions', () => browserManager.getRecordedActions());
+	ipcMain.handle('browser:is-open', () => browserManager.isBrowserOpen());
 	ipcMain.handle('browser:close', () => browserManager.close());
 	ipcMain.handle('browser:go-back', () => browserManager.goBack());
 	ipcMain.handle('browser:go-forward', () => browserManager.goForward());
