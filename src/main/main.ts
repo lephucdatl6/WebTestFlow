@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
 import { BrowserManager } from './browser/browser-manager';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
+import { registerRecordingHandlers } from './ipc/recording-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -21,6 +22,7 @@ function createWindow(): void {
 
   browserManager = new BrowserManager();
   registerBrowserHandlers(browserManager);
+  registerRecordingHandlers();
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);

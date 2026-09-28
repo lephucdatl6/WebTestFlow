@@ -199,11 +199,11 @@ Future test execution can provide:
 
 ### Test Storage
 
-Recorded actions can currently be downloaded as a structured JSON file. Automatic recording storage is planned for Phase 4. SQLite may be introduced later if test management becomes more complex.
+Recordings can be saved and loaded as versioned JSON files through native Electron file dialogs.
 
 ### Playwright Export
 
-Recorded tests are planned to be exportable as Playwright code in Phase 4.
+Recorded tests can be exported as Playwright TypeScript test files. Actions with semantic locators use those locators, other actions fall back to CSS locators.
 
 Example:
 
@@ -359,10 +359,10 @@ WebTestFlow/
 
 ### Phase 4 - Recording Export and Storage
 
-* [ ] Generate Playwright test code
-* [ ] Export generated tests
-* [ ] Automatically save recordings to JSON files
-* [ ] Load saved recordings when needed
+* [x] Generate Playwright test code
+* [x] Export generated tests
+* [x] Save recordings to JSON files through a native file dialog
+* [x] Load saved recordings when needed
 
 ### Phase 5 - Test Replay
 

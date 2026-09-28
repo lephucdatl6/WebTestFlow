@@ -1,1 +1,1 @@
-{"root":["./src/main/main.ts","./src/main/browser/browser-manager.ts","./src/main/ipc/browser-handlers.ts","./src/preload/preload.ts"],"version":"5.9.3"}
+{"root":["./src/main/main.ts","./src/main/browser/browser-manager.ts","./src/main/ipc/browser-handlers.ts","./src/main/ipc/recording-handlers.ts","./src/main/recording/playwright-export.ts","./src/main/recording/recording-files.ts","./src/preload/preload.ts"],"version":"5.9.3"}

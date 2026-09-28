@@ -1,14 +1,10 @@
 import { chromium, Browser, Page } from 'playwright';
-
-type RecordedAction =
-	| { type: 'navigate'; url: string }
-	| { type: 'click'; selector: string; playwright?: string; description?: string }
-	| { type: 'fill'; selector: string; value: string; playwright?: string; description?: string }
-	| { type: 'submit'; selector: string; playwright?: string; description?: string };
+import { RecordedAction } from '../../shared/types/recording';
 
 export class BrowserManager {
 	private browser: Browser | null = null;
 	private page: Page | null = null;
+	private originalUrl: string | undefined;
 	private recordingEnabled = false;
 	private recordedActions: RecordedAction[] = [];
 	private sameTabNavigationDeadline = 0;
@@ -21,6 +17,7 @@ export class BrowserManager {
 				if (this.browser === browser) {
 					this.browser = null;
 					this.page = null;
+					this.originalUrl = undefined;
 					this.recordingEnabled = false;
 					this.recordedActions = [];
 				}
@@ -50,11 +47,12 @@ export class BrowserManager {
 			throw new Error('Only HTTP and HTTPS URLs are supported.');
 		}
 
+		this.originalUrl = this.removeTemporaryUrlParameters(url).toString();
 		await this.page!.goto(url.toString(), { waitUntil: 'domcontentloaded' });
 		return this.page!.url();
 	}
 
-	public async startRecording(): Promise<void> {
+	public async startRecording(): Promise<string | undefined> {
 		await this.launch();
 		this.recordingEnabled = true;
 		this.recordedActions = [];
@@ -63,6 +61,8 @@ export class BrowserManager {
 		if (this.page) {
 			await this.attachRecorderHandlers(this.page);
 		}
+
+		return this.originalUrl ?? (this.page?.url().startsWith('http') ? this.page.url() : undefined);
 	}
 
 	public async stopRecording(): Promise<RecordedAction[]> {
@@ -110,6 +110,7 @@ export class BrowserManager {
 		this.recordingEnabled = false;
 		this.recordedActions = [];
 		this.sameTabNavigationDeadline = 0;
+		this.originalUrl = undefined;
 		await this.browser?.close();
 		this.browser = null;
 		this.page = null;
@@ -125,6 +126,17 @@ export class BrowserManager {
 		}
 
 		return this.page;
+	}
+
+	private removeTemporaryUrlParameters(url: URL): URL {
+		const cleanedUrl = new URL(url.toString());
+		const temporaryParameters = new Set(['solution', 'js_challenge', 'jsc_token', 'jsc_orig_r']);
+		for (const parameter of Array.from(cleanedUrl.searchParams.keys())) {
+			if (temporaryParameters.has(parameter) || parameter.toLowerCase().startsWith('utm_') || ['fbclid', 'gclid'].includes(parameter.toLowerCase())) {
+				cleanedUrl.searchParams.delete(parameter);
+			}
+		}
+		return cleanedUrl;
 	}
 
 	private async bindRecorder(page: Page): Promise<void> {
@@ -230,7 +242,24 @@ export class BrowserManager {
 
 				const href = element.getAttribute('href');
 				if (href) {
-					return `a[href="${href}"]`;
+					const queryStart = href.indexOf('?');
+					if (queryStart >= 0) {
+						const path = href.slice(0, queryStart);
+						const queryParts = href.slice(queryStart + 1).split('&');
+						const temporaryParameterNames = ['solution', 'js_challenge', 'jsc_token', 'jsc_orig_r', 'cid', 'iid', 'fbclid', 'gclid'];
+						const firstTemporaryIndex = queryParts.findIndex((part) => {
+							const parameterName = decodeURIComponent(part.split('=')[0]).toLowerCase();
+							return temporaryParameterNames.includes(parameterName) || parameterName.startsWith('utm_');
+						});
+
+						if (firstTemporaryIndex >= 0) {
+							const stablePrefix = queryParts.slice(0, firstTemporaryIndex).join('&');
+							const prefix = `${path}${stablePrefix ? `?${stablePrefix}` : ''}`;
+							return `a[href^="${prefix.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+						}
+					}
+
+					return `a[href="${href.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
 				}
 
 				const dataSection = element.getAttribute('data-section');

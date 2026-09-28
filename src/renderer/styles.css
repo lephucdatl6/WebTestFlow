@@ -265,7 +265,10 @@ h1 {
 .structured-data-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 8px;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #3a464f;
 }
 
 @media (max-width: 760px) {

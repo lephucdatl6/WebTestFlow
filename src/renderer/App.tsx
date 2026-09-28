@@ -1,11 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, Download, MousePointerClick, RotateCw, Type } from 'lucide-react';
-
-type RecordedAction =
-  | { type: 'navigate'; url: string }
-  | { type: 'click'; selector: string; playwright?: string; description?: string }
-  | { type: 'fill'; selector: string; value: string; playwright?: string; description?: string }
-  | { type: 'submit'; selector: string; playwright?: string; description?: string };
+import { ArrowLeft, ArrowRight, MousePointerClick, RotateCw, Type } from 'lucide-react';
+import { timestampedFilename } from '../shared/types/recording';
+import type { RecordedAction, RecordingDocument } from '../shared/types/recording';
 
 function App() {
   const [url, setUrl] = useState('https://example.com');
@@ -17,6 +13,7 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [showStructuredData, setShowStructuredData] = useState(false);
   const [recordedActions, setRecordedActions] = useState<RecordedAction[]>([]);
+  const [recordingStartUrl, setRecordingStartUrl] = useState<string | undefined>();
 
   useEffect(() => {
     if (!isRecording) {
@@ -98,8 +95,9 @@ function App() {
     }
 
     await run(async () => {
-      await window.webTestFlow.startRecording();
+      const startUrl = await window.webTestFlow.startRecording();
       setRecordedActions([]);
+      setRecordingStartUrl(startUrl);
       setIsRecording(true);
       setStatus('Recording started');
     }, 'Recording started');
@@ -114,15 +112,52 @@ function App() {
     }, 'Chromium is closed');
   }
 
-  function downloadStructuredData() {
-    const data = JSON.stringify(recordedActions, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
+  function downloadText(filename: string, data: string, type: string) {
+    const blob = new Blob([data], { type });
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = 'webtestflow-recording.json';
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(downloadUrl);
+  }
+
+  function createRecordingDocument(): RecordingDocument {
+    const firstNavigation = recordedActions.find((action): action is Extract<RecordedAction, { type: 'navigate' }> => action.type === 'navigate');
+    return {
+      version: 1,
+      name: 'webtestflow-recording',
+      createdAt: new Date().toISOString(),
+      startUrl: recordingStartUrl ?? firstNavigation?.url,
+      actions: recordedActions
+    };
+  }
+
+  async function saveRecording() {
+    const saved = await window.webTestFlow.saveRecording(createRecordingDocument());
+    setStatus(saved ? 'Recording saved' : 'Save cancelled');
+  }
+
+  async function loadRecording() {
+    const document = await window.webTestFlow.loadRecording();
+    if (!document) {
+      setStatus('Load cancelled');
+      return;
+    }
+
+    setRecordedActions(document.actions);
+    if (document.startUrl) {
+      setUrl(document.startUrl);
+    }
+    setShowStructuredData(false);
+    setStatus(`Loaded ${document.actions.length} action(s)`);
+  }
+
+  async function exportPlaywrightTest() {
+    const document = createRecordingDocument();
+    const code = await window.webTestFlow.generatePlaywrightTest(document.name, document.startUrl, document.actions);
+    downloadText(timestampedFilename(document.name, 'spec.ts'), code, 'text/plain');
+    setStatus('Playwright test exported');
   }
 
   return (
@@ -169,6 +204,9 @@ function App() {
         <button type="submit" disabled={isBusy}>Open</button>
         <button type="button" className={isRecording ? 'recording' : ''} disabled={isBusy} onClick={() => void toggleRecording()}>
           {isRecording ? 'Stop Recording' : 'Record'}
+        </button>
+        <button type="button" disabled={isBusy} onClick={() => void run(loadRecording, 'Recording loaded')}>
+          Load Recording
         </button>
         <button type="button" disabled={isBusy} onClick={() => void closeBrowser()}>
           Close
@@ -232,19 +270,12 @@ function App() {
                   <pre className="structured-data" aria-label="Action JSON data">
                     {JSON.stringify(recordedActions, null, 2)}
                   </pre>
-                  <div className="structured-data-actions">
-                    <button
-                      type="button"
-                      className="icon-button"
-                      onClick={downloadStructuredData}
-                      aria-label="Download action JSON"
-                      title="Download action JSON"
-                    >
-                      <Download aria-hidden="true" size={16} />
-                    </button>
-                  </div>
                 </div>
               ) : null}
+            </div>
+            <div className="structured-data-actions">
+              <button type="button" onClick={() => void exportPlaywrightTest()} disabled={isBusy || recordedActions.length === 0}>Export Playwright</button>
+              <button type="button" onClick={() => void saveRecording()} disabled={isBusy || recordedActions.length === 0}>Save JSON</button>
             </div>
           </div>
 

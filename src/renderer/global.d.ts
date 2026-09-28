@@ -1,3 +1,5 @@
+import type { RecordingDocument } from '../shared/types/recording';
+
 export {};
 
 declare global {
@@ -5,23 +7,9 @@ declare global {
     webTestFlow: {
       launch: () => Promise<void>;
       openUrl: (url: string) => Promise<string>;
-      startRecording: () => Promise<void>;
-      stopRecording: () => Promise<Array<{
-        type: string;
-        selector?: string;
-        playwright?: string;
-        value?: string;
-        url?: string;
-        description?: string;
-      }>>;
-      getRecordingActions: () => Promise<Array<{
-        type: string;
-        selector?: string;
-        playwright?: string;
-        value?: string;
-        url?: string;
-        description?: string;
-      }>>;
+      startRecording: () => Promise<string | undefined>;
+      stopRecording: () => Promise<RecordingDocument['actions']>;
+      getRecordingActions: () => Promise<RecordingDocument['actions']>;
       isBrowserOpen: () => Promise<boolean>;
       close: () => Promise<void>;
       goBack: () => Promise<void>;
@@ -29,6 +17,9 @@ declare global {
       reload: () => Promise<void>;
       click: (selector: string) => Promise<void>;
       fill: (selector: string, value: string) => Promise<void>;
+      saveRecording: (document: RecordingDocument) => Promise<boolean>;
+      loadRecording: () => Promise<RecordingDocument | null>;
+      generatePlaywrightTest: (name: string, startUrl: string | undefined, actions: RecordingDocument['actions']) => Promise<string>;
     };
   }
 }
