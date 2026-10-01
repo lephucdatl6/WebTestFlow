@@ -191,7 +191,14 @@ export class BrowserManager {
 			}
 
 			if (this.page) {
-				await this.attachRecorderHandlers(this.page);
+				try {
+					await this.attachRecorderHandlers(this.page);
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					if (!/execution context was destroyed|frame was detached|cannot find context/i.test(message)) {
+						console.error('Failed to reattach browser recorder:', error);
+					}
+				}
 			}
 		});
 	}
@@ -213,6 +220,57 @@ export class BrowserManager {
 			const pendingInputTimers = new WeakMap<Element, number>();
 			const editedInputTargets = new WeakSet<Element>();
 			const lastClickTargets = new WeakSet<Element>();
+			const actionableSelector = 'input, textarea, select, button, a, [role="button"], [role="link"], [role="option"], [role="menuitem"], [role="combobox"], [role="listbox"], [aria-haspopup], [tabindex]';
+
+			function escapeAttributeValue(value: string): string {
+				return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+			}
+
+			function uniqueSelectorForElement(element: Element): string {
+				const tag = element.tagName.toLowerCase();
+				const stableAttributes = ['data-testid', 'name', 'placeholder', 'aria-label', 'title', 'data-section', 'alt', 'role', 'type', 'slot'];
+
+				if (element instanceof HTMLElement && element.id) {
+					const idSelector = `#${CSS.escape(element.id)}`;
+					if (document.querySelectorAll(idSelector).length === 1) {
+						return idSelector;
+					}
+				}
+
+				for (const attribute of stableAttributes) {
+					const value = element.getAttribute(attribute);
+					if (!value) {
+						continue;
+					}
+
+					const selector = `${tag}[${attribute}="${escapeAttributeValue(value)}"]`;
+					if (document.querySelectorAll(selector).length === 1) {
+						return selector;
+					}
+				}
+
+				const path: string[] = [];
+				let current: Element | null = element;
+				while (current && current !== document.documentElement) {
+					const currentElement: Element = current;
+					const currentTag = currentElement.tagName.toLowerCase();
+					const parentElement: Element | null = currentElement.parentElement;
+					const siblings: Element[] = parentElement ? Array.from(parentElement.children) as Element[] : [];
+					const sameTagSiblings = parentElement
+						? siblings.filter((sibling: Element) => sibling.tagName === currentElement.tagName)
+						: [];
+					const position = sameTagSiblings.indexOf(currentElement) + 1;
+					path.unshift(sameTagSiblings.length > 1 ? `${currentTag}:nth-of-type(${position})` : currentTag);
+					const selector = path.join(' > ');
+					const matches = document.querySelectorAll(selector);
+					if (matches.length === 1 && matches[0] === element) {
+						return selector;
+					}
+					current = parentElement;
+				}
+
+				return path.join(' > ');
+			}
 
 			function selectorFromElement(element: Element): string {
 				const tag = element.tagName.toLowerCase();
@@ -242,6 +300,7 @@ export class BrowserManager {
 
 				const href = element.getAttribute('href');
 				if (href) {
+					let hrefSelector: string;
 					const queryStart = href.indexOf('?');
 					if (queryStart >= 0) {
 						const path = href.slice(0, queryStart);
@@ -255,11 +314,18 @@ export class BrowserManager {
 						if (firstTemporaryIndex >= 0) {
 							const stablePrefix = queryParts.slice(0, firstTemporaryIndex).join('&');
 							const prefix = `${path}${stablePrefix ? `?${stablePrefix}` : ''}`;
-							return `a[href^="${prefix.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+							hrefSelector = `a[href^="${prefix.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+						} else {
+							hrefSelector = `a[href="${href.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
 						}
+					} else {
+						hrefSelector = `a[href="${href.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
 					}
 
-					return `a[href="${href.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+					const hrefMatches = document.querySelectorAll(hrefSelector);
+					return hrefMatches.length === 1 && hrefMatches[0] === element
+						? hrefSelector
+						: uniqueSelectorForElement(element);
 				}
 
 				const dataSection = element.getAttribute('data-section');
@@ -272,43 +338,153 @@ export class BrowserManager {
 					return `${tag}[alt="${alt}"]`;
 				}
 
-				const text = element.textContent?.trim();
-				if (text && text.length > 0 && text.length < 40) {
-					return `${tag}:has-text("${text.replace(/"/g, '\\"')}")`;
-				}
-
-				const className = element.getAttribute('class');
-				if (className && className.trim()) {
-					const cleanClass = className.trim().split(/\s+/).filter(Boolean)[0];
-					if (cleanClass) {
-						return `${tag}.${cleanClass}`;
-					}
-				}
-
-				return tag;
+				return uniqueSelectorForElement(element);
 			}
 
 			function elementDescription(element: Element): string | undefined {
 				return element.getAttribute('aria-label') ?? element.getAttribute('name') ?? undefined;
 			}
 
-			function playwrightLocatorFromElement(element: Element): string | undefined {
+			function roleForElement(element: Element): string | undefined {
 				const tag = element.tagName.toLowerCase();
-				const role = element.getAttribute('role') ?? (tag === 'a' ? 'link' : tag === 'button' ? 'button' : undefined);
-				const name = element.getAttribute('aria-label') ?? element.textContent?.trim();
+				const explicitRole = element.getAttribute('role');
+				if (explicitRole) {
+					return explicitRole;
+				}
+
+				if (tag === 'a' && element.hasAttribute('href')) {
+					return 'link';
+				}
+				if (tag === 'button') {
+					return 'button';
+				}
+				if (tag === 'textarea') {
+					return 'textbox';
+				}
+				if (tag === 'select') {
+					return element.hasAttribute('multiple') ? 'listbox' : 'combobox';
+				}
+				if (tag === 'input') {
+					const type = (element.getAttribute('type') ?? 'text').toLowerCase();
+					if (type === 'hidden') {
+						return undefined;
+					}
+					if (['button', 'submit', 'reset', 'image'].includes(type)) {
+						return 'button';
+					}
+					if (type === 'checkbox') {
+						return 'checkbox';
+					}
+					if (type === 'radio') {
+						return 'radio';
+					}
+					if (type === 'search') {
+						return 'searchbox';
+					}
+					if (type === 'number') {
+						return 'spinbutton';
+					}
+					return 'textbox';
+				}
+
+				return undefined;
+			}
+
+			function roleNameForElement(element: Element, role: string): string {
+				const labelledBy = element.getAttribute('aria-labelledby');
+				const labelledByText = labelledBy
+					?.split(/\s+/)
+					.map((id) => document.getElementById(id)?.textContent?.trim())
+					.filter((part): part is string => Boolean(part))
+					.join(' ');
+				const ownText = Array.from(element.childNodes)
+					.filter((node) => node.nodeType === Node.TEXT_NODE)
+					.map((node) => node.textContent?.trim())
+					.filter((part): part is string => Boolean(part))
+					.join(' ');
+				const roleText = role ? element.textContent?.trim() : undefined;
+				return (element.getAttribute('aria-label') ?? labelledByText ?? element.getAttribute('title') ?? roleText ?? ownText ?? '')
+					.replace(/\s+/g, ' ')
+					.trim();
+			}
+
+			function labelNamesForElement(element: Element): string[] {
+				const names = [element.getAttribute('aria-label') ?? ''];
+				const labelledBy = element.getAttribute('aria-labelledby');
+				if (labelledBy) {
+					names.push(labelledBy
+						.split(/\s+/)
+						.map((id) => document.getElementById(id)?.textContent?.trim())
+						.filter((part): part is string => Boolean(part))
+						.join(' '));
+				}
+
+				if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+					names.push(...Array.from(element.labels ?? []).map((label) => label.textContent ?? ''));
+				}
+
+				return names.map((name) => name.replace(/\s+/g, ' ').trim()).filter(Boolean);
+			}
+
+			function hasUniqueLabelName(target: Element, labelText: string): boolean {
+				const labelableElements = document.querySelectorAll('input, textarea, select, [contenteditable="true"], [aria-label], [aria-labelledby]');
+				const matches = Array.from(labelableElements).filter((candidate) => labelNamesForElement(candidate).includes(labelText));
+				return matches.length === 1 && matches[0] === target;
+			}
+
+			function playwrightLocatorFromElement(element: Element): string | undefined {
+				const role = roleForElement(element);
+				const name = role ? roleNameForElement(element, role) : undefined;
 				const placeholder = element.getAttribute('placeholder');
+				let ambiguousSemanticLocator = false;
+
+				if (isFillableElement(element)) {
+					const labels = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
+						? Array.from(element.labels ?? [])
+						: [];
+					const labelText = labels
+						.map((label) => label.textContent?.replace(/\s+/g, ' ').trim())
+						.find((text): text is string => Boolean(text));
+					if (labelText) {
+						if (hasUniqueLabelName(element, labelText)) {
+							return `getByLabel(${JSON.stringify(labelText)}, { exact: true })`;
+						}
+						ambiguousSemanticLocator = true;
+					}
+				}
 
 				if (isFillableElement(element) && placeholder) {
-					return `getByPlaceholder(${JSON.stringify(placeholder)})`;
+					const matchingPlaceholders = Array.from(document.querySelectorAll('[placeholder]'))
+						.filter((candidate) => candidate.getAttribute('placeholder') === placeholder);
+					if (matchingPlaceholders.length === 1 && matchingPlaceholders[0] === element) {
+						return `getByPlaceholder(${JSON.stringify(placeholder)}, { exact: true })`;
+					}
+					ambiguousSemanticLocator = true;
 				}
 
 				const ariaLabel = element.getAttribute('aria-label');
 				if (isFillableElement(element) && ariaLabel) {
-					return `getByLabel(${JSON.stringify(ariaLabel)})`;
+					const normalizedAriaLabel = ariaLabel.replace(/\s+/g, ' ').trim();
+					if (hasUniqueLabelName(element, normalizedAriaLabel)) {
+						return `getByLabel(${JSON.stringify(normalizedAriaLabel)}, { exact: true })`;
+					}
+					ambiguousSemanticLocator = true;
 				}
 
-				if ((role === 'link' || role === 'button') && name && name.length < 80) {
-					return `getByRole('${role}', { name: ${JSON.stringify(name)} })`;
+				if (role && name && name.length < 80) {
+					const candidates = Array.from(document.querySelectorAll('a, button, input, textarea, select, [role]'));
+					const matchingCandidates = candidates.filter((candidate) => {
+						const candidateRole = roleForElement(candidate);
+						return candidateRole === role && roleNameForElement(candidate, candidateRole) === name;
+					});
+					if (matchingCandidates.length === 1 && matchingCandidates[0] === element) {
+						return `getByRole(${JSON.stringify(role)}, { name: ${JSON.stringify(name)}, exact: true })`;
+					}
+					ambiguousSemanticLocator = true;
+				}
+
+				if (ambiguousSemanticLocator) {
+					return `locator(${JSON.stringify(uniqueSelectorForElement(element))})`;
 				}
 
 				return undefined;
@@ -376,12 +552,10 @@ export class BrowserManager {
 				lastClickTargets.add(target);
 				setTimeout(() => lastClickTargets.delete(target), 250);
 
-				const interactiveSelector = 'input, textarea, select, button, a, [role="button"], [role="link"]';
 				const composedTarget = event.composedPath().find(
-					(pathItem): pathItem is Element => pathItem instanceof Element && pathItem.matches(interactiveSelector)
+					(pathItem): pathItem is Element => pathItem instanceof Element && pathItem.matches(actionableSelector)
 				);
-				const chosenTarget = target.closest(interactiveSelector)
-					?? (target.matches(interactiveSelector) ? target : target.querySelector(interactiveSelector))
+				const chosenTarget = target.closest(actionableSelector)
 					?? composedTarget
 					?? target;
 				globalWindow.webTestFlowRecorderCapture({

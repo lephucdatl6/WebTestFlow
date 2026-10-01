@@ -1,4 +1,6 @@
 import type { RecordingDocument } from '../shared/types/recording';
+import type { TestRunProgress, TestRunResult } from '../shared/types/test-run';
+import type { SpecFileSelection, SpecTestProgress, SpecTestResult } from '../shared/types/spec-test';
 
 export {};
 
@@ -20,6 +22,13 @@ declare global {
       saveRecording: (document: RecordingDocument) => Promise<boolean>;
       loadRecording: () => Promise<RecordingDocument | null>;
       generatePlaywrightTest: (name: string, startUrl: string | undefined, actions: RecordingDocument['actions']) => Promise<string>;
+      runTest: (startUrl: string | undefined, actions: RecordingDocument['actions']) => Promise<TestRunResult>;
+      stopTest: () => Promise<boolean>;
+      onTestProgress: (callback: (progress: TestRunProgress) => void) => () => void;
+      loadSpecTest: () => Promise<SpecFileSelection | null>;
+      runSpecTest: () => Promise<SpecTestResult>;
+      stopSpecTest: () => Promise<boolean>;
+      onSpecTestProgress: (callback: (progress: SpecTestProgress) => void) => () => void;
     };
   }
 }

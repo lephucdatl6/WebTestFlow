@@ -1,7 +1,42 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, MousePointerClick, RotateCw, Type } from 'lucide-react';
-import { timestampedFilename } from '../shared/types/recording';
+import { recordingNameFromUrl, timestampedFilename } from '../shared/types/recording';
 import type { RecordedAction, RecordingDocument } from '../shared/types/recording';
+import type { TestRunProgress } from '../shared/types/test-run';
+import type { SpecFileSelection, SpecTestProgress, SpecTestResult, SpecTestStep } from '../shared/types/spec-test';
+
+function SpecStepList({ steps, prefix = '' }: { steps: SpecTestStep[]; prefix?: string }) {
+  return (
+    <ol className="spec-step-list">
+      {steps.map((step, index) => {
+        const stepNumber = prefix ? `${prefix}.${index + 1}` : `${index + 1}`;
+        const firstErrorLine = step.error?.split('\n').find((line) => line.trim());
+        const timeout = step.error?.match(/(?:Timeout|timeout)[^\n]*?(\d+)ms/);
+
+        return (
+          <li className={`spec-step ${step.status}`} key={`${stepNumber}-${step.title}`}>
+            <div className="spec-step-heading">
+              <span className="spec-step-mark" aria-label={step.status}>
+                {step.status === 'passed' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'running' ? '…' : '–'}
+              </span>
+              <strong>{stepNumber}. {step.title}</strong>
+              {typeof step.durationMs === 'number' ? <span>{(step.durationMs / 1000).toFixed(1)}s</span> : null}
+            </div>
+            {step.status === 'failed' ? (
+              <div className="spec-step-failure">
+                {firstErrorLine ? <span>Failed: {firstErrorLine}</span> : <span>Failed during this step.</span>}
+                {timeout ? <span>Timeout: {(Number(timeout[1]) / 1000).toFixed(Number(timeout[1]) % 1000 === 0 ? 0 : 1)}s</span> : null}
+                {step.file && step.line ? <span>Line {step.line}</span> : null}
+              </div>
+            ) : null}
+            {step.detail ? <div className="spec-step-detail">{step.detail}</div> : null}
+            {step.children?.length ? <SpecStepList steps={step.children} prefix={stepNumber} /> : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 
 function App() {
   const [url, setUrl] = useState('https://example.com');
@@ -14,6 +49,14 @@ function App() {
   const [showStructuredData, setShowStructuredData] = useState(false);
   const [recordedActions, setRecordedActions] = useState<RecordedAction[]>([]);
   const [recordingStartUrl, setRecordingStartUrl] = useState<string | undefined>();
+  const [testRunProgress, setTestRunProgress] = useState<TestRunProgress | null>(null);
+  const [loadedSpecFile, setLoadedSpecFile] = useState<SpecFileSelection | null>(null);
+  const [specTestProgress, setSpecTestProgress] = useState<SpecTestProgress | null>(null);
+  const [specTestResult, setSpecTestResult] = useState<SpecTestResult | null>(null);
+  const [isSpecTestRunning, setIsSpecTestRunning] = useState(false);
+
+  useEffect(() => window.webTestFlow.onTestProgress(setTestRunProgress), []);
+  useEffect(() => window.webTestFlow.onSpecTestProgress(setSpecTestProgress), []);
 
   useEffect(() => {
     if (!isRecording) {
@@ -45,10 +88,8 @@ function App() {
     const interval = window.setInterval(async () => {
       try {
         const isBrowserOpen = await window.webTestFlow.isBrowserOpen();
-        if (!isBrowserOpen && status !== 'Chromium is closed') {
+        if (!isBrowserOpen && isRecording) {
           setIsRecording(false);
-          setRecordedActions([]);
-          setShowStructuredData(false);
           setStatus('Chromium is closed');
         }
       } catch {
@@ -57,7 +98,7 @@ function App() {
     }, 500);
 
     return () => window.clearInterval(interval);
-  }, [status]);
+  }, [isRecording]);
 
   function readableError(actionError: unknown): string {
     const message = actionError instanceof Error ? actionError.message : 'The browser action failed.';
@@ -124,11 +165,12 @@ function App() {
 
   function createRecordingDocument(): RecordingDocument {
     const firstNavigation = recordedActions.find((action): action is Extract<RecordedAction, { type: 'navigate' }> => action.type === 'navigate');
+    const startUrl = recordingStartUrl ?? firstNavigation?.url;
     return {
       version: 1,
-      name: 'webtestflow-recording',
+      name: recordingNameFromUrl(startUrl),
       createdAt: new Date().toISOString(),
-      startUrl: recordingStartUrl ?? firstNavigation?.url,
+      startUrl,
       actions: recordedActions
     };
   }
@@ -146,6 +188,7 @@ function App() {
     }
 
     setRecordedActions(document.actions);
+    setRecordingStartUrl(document.startUrl);
     if (document.startUrl) {
       setUrl(document.startUrl);
     }
@@ -153,11 +196,71 @@ function App() {
     setStatus(`Loaded ${document.actions.length} action(s)`);
   }
 
+  async function loadSpecTest() {
+    const selection = await window.webTestFlow.loadSpecTest();
+    if (!selection) {
+      setStatus('Playwright test selection cancelled');
+      return;
+    }
+
+    setLoadedSpecFile(selection);
+    setSpecTestResult(null);
+    setStatus(`Loaded ${selection.fileName}`);
+  }
+
   async function exportPlaywrightTest() {
     const document = createRecordingDocument();
     const code = await window.webTestFlow.generatePlaywrightTest(document.name, document.startUrl, document.actions);
     downloadText(timestampedFilename(document.name, 'spec.ts'), code, 'text/plain');
     setStatus('Playwright test exported');
+  }
+
+  async function runTest() {
+    setError('');
+    setTestRunProgress({ status: 'running', currentStep: 0, totalSteps: recordedActions.length + (recordingStartUrl ? 1 : 0), currentAction: 'Starting test', steps: [] });
+    try {
+      const document = createRecordingDocument();
+      const result = await window.webTestFlow.runTest(document.startUrl, document.actions);
+      setTestRunProgress(result);
+      if (result.status === 'failed') {
+        setStatus(`Test failed at step ${result.currentStep + 1}`);
+      } else if (result.status === 'stopped') {
+        setStatus(`Test stopped at step ${result.currentStep} of ${result.totalSteps}`);
+      } else {
+        setStatus(`Test passed: ${result.totalSteps} step(s)`);
+      }
+    } catch (runError) {
+      setTestRunProgress(null);
+      setError(readableError(runError));
+      setStatus('Test could not start');
+    }
+  }
+
+  async function stopTest() {
+    await window.webTestFlow.stopTest();
+  }
+
+  async function runSpecTest() {
+    setError('');
+    setSpecTestResult(null);
+    setSpecTestProgress({ status: 'running', fileName: loadedSpecFile?.fileName ?? '', durationMs: 0, steps: [] });
+    setIsSpecTestRunning(true);
+    try {
+      const result = await window.webTestFlow.runSpecTest();
+      setSpecTestResult(result);
+      setSpecTestProgress(null);
+      setStatus(`${result.fileName}: ${result.status}`);
+    } catch (runError) {
+      setSpecTestProgress(null);
+      setError(readableError(runError));
+      setStatus('Playwright test could not start');
+    } finally {
+      setIsSpecTestRunning(false);
+    }
+  }
+
+  async function stopSpecTest() {
+    await window.webTestFlow.stopSpecTest();
   }
 
   return (
@@ -206,11 +309,14 @@ function App() {
           {isRecording ? 'Stop Recording' : 'Record'}
         </button>
         <button type="button" disabled={isBusy} onClick={() => void run(loadRecording, 'Recording loaded')}>
-          Load Recording
+          Load JSON
         </button>
-        <button type="button" disabled={isBusy} onClick={() => void closeBrowser()}>
+        <button type="button" disabled={isBusy} onClick={() => void run(loadSpecTest, 'Playwright test loaded')}>
+          Load Playwright
+        </button>
+        {/* <button type="button" disabled={isBusy} onClick={() => void closeBrowser()}>
           Close
-        </button>
+        </button> */}
       </form>
       <section className="workspace" aria-label="Browser workspace">
         <div className={showStructuredData ? 'workspace-content workspace-content-expanded' : 'workspace-content'}>
@@ -274,10 +380,95 @@ function App() {
               ) : null}
             </div>
             <div className="structured-data-actions">
+              {!testRunProgress || testRunProgress.status !== 'running' ? (
+                <button type="button" onClick={() => void runTest()} disabled={isBusy || isRecording || recordedActions.length === 0}>Run Test</button>
+              ) : (
+                <button type="button" onClick={() => void stopTest()}>Stop Test</button>
+              )}
               <button type="button" onClick={() => void exportPlaywrightTest()} disabled={isBusy || recordedActions.length === 0}>Export Playwright</button>
               <button type="button" onClick={() => void saveRecording()} disabled={isBusy || recordedActions.length === 0}>Save JSON</button>
             </div>
+            {testRunProgress ? (
+              <div className={`test-run-status ${testRunProgress.status}`} aria-live="polite">
+                <strong>
+                  {testRunProgress.status === 'running' ? 'Test running' :
+                    testRunProgress.status === 'passed' ? 'Test passed' :
+                      testRunProgress.status === 'failed' ? 'Test failed' : 'Test stopped'}
+                </strong>
+                <span>
+                  {testRunProgress.currentStep}/{testRunProgress.totalSteps} steps
+                  {typeof testRunProgress.durationMs === 'number' ? ` · ${(testRunProgress.durationMs / 1000).toFixed(1)}s` : ''}
+                </span>
+                {testRunProgress.currentAction ? <span>{testRunProgress.currentAction}</span> : null}
+                {testRunProgress.steps.length > 0 ? (
+                  <div className="spec-steps-section">
+                    <strong>Steps</strong>
+                    <SpecStepList steps={testRunProgress.steps} />
+                  </div>
+                ) : null}
+                {testRunProgress.error ? (
+                  <details className="spec-error-details">
+                    <summary>Error Details</summary>
+                    <pre className="spec-test-error" role="alert">{testRunProgress.error}</pre>
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
           </div>
+
+          <section className="spec-test-panel" aria-labelledby="spec-test-heading">
+            <div className="spec-test-header">
+              <div>
+                <h2 id="spec-test-heading">Playwright Test</h2>
+                <p className="spec-test-warning">Runs the selected TypeScript file.</p>
+              </div>
+              {loadedSpecFile ? <span className="spec-file-name">{loadedSpecFile.fileName}</span> : null}
+            </div>
+            <div className="structured-data-actions">
+              {!isSpecTestRunning ? (
+                <button type="button" onClick={() => void runSpecTest()} disabled={!loadedSpecFile || isBusy || isRecording || testRunProgress?.status === 'running'}>Run Test</button>
+              ) : (
+                <button type="button" onClick={() => void stopSpecTest()}>Stop Test</button>
+              )}
+            </div>
+            {specTestProgress ? (
+              <div className="test-run-status running" aria-live="polite">
+                <strong>Test running</strong>
+                {specTestProgress.testName ? <span>Test: {specTestProgress.testName}</span> : null}
+                <span>File: {specTestProgress.fileName}</span>
+                <span>Duration: {(specTestProgress.durationMs / 1000).toFixed(1)}s</span>
+                {specTestProgress.currentStep ? <span>Now testing: {specTestProgress.currentStep}</span> : null}
+                {specTestProgress.steps.length > 0 ? (
+                  <div className="spec-steps-section">
+                    <strong>Steps</strong>
+                    <SpecStepList steps={specTestProgress.steps} />
+                  </div>
+                ) : <p className="spec-no-steps">Starting Playwright test…</p>}
+              </div>
+            ) : specTestResult ? (
+              <div className={`test-run-status ${specTestResult.status}`} aria-live="polite">
+                <strong>Test {specTestResult.status}</strong>
+                {specTestResult.testName ? <span>Test: {specTestResult.testName}</span> : null}
+                <span>File: {specTestResult.fileName}</span>
+                <span>Duration: {(specTestResult.durationMs / 1000).toFixed(1)}s</span>
+                {specTestResult.steps.length > 0 ? (
+                  <div className="spec-steps-section">
+                    <strong>Steps</strong>
+                    <SpecStepList steps={specTestResult.steps} />
+                  </div>
+                ) : (
+                  <p className="spec-no-steps">Playwright did not report named steps. Use test.step() in an edited spec to show individual step results.</p>
+                )}
+                {specTestResult.error ? (
+                  <details className="spec-error-details">
+                    <summary>Error Details</summary>
+                    <pre className="spec-test-error" role="alert">{specTestResult.error}</pre>
+                  </details>
+                ) : null}
+                {specTestResult.output ? <pre className="spec-test-output">{specTestResult.output}</pre> : null}
+              </div>
+            ) : null}
+          </section>
 
           <form className="interaction-panel" onSubmit={(event) => {
             event.preventDefault();

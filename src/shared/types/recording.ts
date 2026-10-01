@@ -12,6 +12,20 @@ export interface RecordingDocument {
 	actions: RecordedAction[];
 }
 
+export function recordingNameFromUrl(url: string | undefined): string {
+	if (!url) {
+		return 'webtestflow-recording';
+	}
+
+	try {
+		const hostname = new URL(url).hostname.replace(/^www\./i, '');
+		const siteName = hostname.split('.')[0].toLowerCase().replace(/[^a-z0-9_-]/g, '');
+		return siteName || 'webtestflow-recording';
+	} catch {
+		return 'webtestflow-recording';
+	}
+}
+
 export function timestampedFilename(baseName: string, extension: string, date = new Date()): string {
 	const pad = (value: number, length = 2) => value.toString().padStart(length, '0');
 	const timestamp = [

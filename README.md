@@ -74,9 +74,11 @@ Record meaningful browser actions while interacting with a website. The current 
 - Enter/submit actions
 - Live action updates
 - Consecutive fill merging for the same field
+- Duplicate click prevention
+- Browser disconnect handling
 - Structured JSON view of recorded actions
 
-The recorder stores both a **CSS selector** and a **semantic Playwright locator** when one can be identified.
+The recorder stores both a **CSS selector** and a **semantic Playwright locator** when one can be identified. Semantic locator generation can use labels, placeholders, ARIA labels, and accessible roles/names when the locator is unique.
 
 For example, clicking the Home link can be recorded as:
 
@@ -114,7 +116,7 @@ Same-tab navigation caused directly by a link click is omitted from the action l
 
 ### Test Replay
 
-Recorded actions are intended to be replayed automatically through Playwright. Replay is planned for Phase 5.
+Recorded actions can be replayed in a separate Playwright-controlled Chromium window. WebTestFlow displays step progress and the final pass/fail/stopped result, reports the failed action and error when a step fails, and allows an active run to be stopped.
 
 Example:
 
@@ -205,6 +207,25 @@ Recordings can be saved and loaded as versioned JSON files through native Electr
 
 Recorded tests can be exported as Playwright TypeScript test files. Actions with semantic locators use those locators, other actions fall back to CSS locators.
 
+Exported `.spec.ts` files can be edited and loaded back into WebTestFlow for direct Playwright Test execution. This provides a separate workflow for users who want to edit generated Playwright code manually before running it.
+
+```text
+Record / Load JSON
+        ↓
+Generate Playwright .spec.ts
+        ↓
+Edit .spec.ts manually
+        ↓
+Load .spec.ts
+        ↓
+Run Playwright Test
+        ↓
+View execution progress and result
+```
+
+The JSON recording remains the source for WebTestFlow recording editing and replay. Edited TypeScript is **not** converted back into JSON.
+
+Only load and run `.spec.ts` files you trust because they execute with the current user's permissions.
 Example:
 
 ```typescript
@@ -274,12 +295,6 @@ Used for:
 * Test management
 * File operations
 * Application services
-
-### Storage
-
-**Current:** JSON export
-
-**Planned:** Automatic recording persistence and SQLite
 
 ---
 
@@ -363,13 +378,18 @@ WebTestFlow/
 * [x] Export generated tests
 * [x] Save recordings to JSON files through a native file dialog
 * [x] Load saved recordings when needed
+* [x] Validate loaded recording documents
+* [x] Load edited Playwright `.spec.ts` files
+* [x] Run loaded Playwright `.spec.ts` files
+* [x] Stop loaded Playwright `.spec.ts` execution
+* [x] Report `.spec.ts` execution progress and results
 
 ### Phase 5 - Test Replay
 
-* [ ] Run recorded tests
-* [ ] Stop tests
-* [ ] Pass/fail status
-* [ ] Error handling
+* [x] Run tests
+* [x] Stop tests
+* [x] Pass/fail status
+* [x] Error handling
 
 ### Phase 6 - Security Analyzer
 
@@ -395,6 +415,14 @@ WebTestFlow/
 * [ ] Test duration
 * [ ] Pass/fail summary
 * [ ] Security report
+
+### Phase 9 - Advanced Test Execution
+
+* [ ] Test suites
+* [ ] Run multiple tests
+* [ ] Parallel test execution
+* [ ] Retry failed tests
+* [ ] Test execution history
 
 ---
 

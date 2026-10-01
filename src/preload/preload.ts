@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { RecordingDocument } from '../shared/types/recording';
+import type { TestRunProgress, TestRunResult } from '../shared/types/test-run';
+import type { SpecFileSelection, SpecTestProgress, SpecTestResult } from '../shared/types/spec-test';
 
 contextBridge.exposeInMainWorld('webTestFlow', {
 	launch: () => ipcRenderer.invoke('browser:launch'),
@@ -16,5 +18,20 @@ contextBridge.exposeInMainWorld('webTestFlow', {
 	fill: (selector: string, value: string) => ipcRenderer.invoke('browser:fill', selector, value),
 	saveRecording: (document: RecordingDocument) => ipcRenderer.invoke('recording:save', document) as Promise<boolean>,
 	loadRecording: () => ipcRenderer.invoke('recording:load') as Promise<RecordingDocument | null>,
-	generatePlaywrightTest: (name: string, startUrl: string | undefined, actions: RecordingDocument['actions']) => ipcRenderer.invoke('recording:generate-playwright', name, startUrl, actions) as Promise<string>
+	generatePlaywrightTest: (name: string, startUrl: string | undefined, actions: RecordingDocument['actions']) => ipcRenderer.invoke('recording:generate-playwright', name, startUrl, actions) as Promise<string>,
+	runTest: (startUrl: string | undefined, actions: RecordingDocument['actions']) => ipcRenderer.invoke('test:run', startUrl, actions) as Promise<TestRunResult>,
+	stopTest: () => ipcRenderer.invoke('test:stop') as Promise<boolean>,
+	onTestProgress: (callback: (progress: TestRunProgress) => void) => {
+		const listener = (_event: Electron.IpcRendererEvent, progress: TestRunProgress) => callback(progress);
+		ipcRenderer.on('test:progress', listener);
+		return () => ipcRenderer.removeListener('test:progress', listener);
+	},
+	loadSpecTest: () => ipcRenderer.invoke('spec-test:load') as Promise<SpecFileSelection | null>,
+	runSpecTest: () => ipcRenderer.invoke('spec-test:run') as Promise<SpecTestResult>,
+	stopSpecTest: () => ipcRenderer.invoke('spec-test:stop') as Promise<boolean>,
+	onSpecTestProgress: (callback: (progress: SpecTestProgress) => void) => {
+		const listener = (_event: Electron.IpcRendererEvent, progress: SpecTestProgress) => callback(progress);
+		ipcRenderer.on('spec-test:progress', listener);
+		return () => ipcRenderer.removeListener('spec-test:progress', listener);
+	}
 });

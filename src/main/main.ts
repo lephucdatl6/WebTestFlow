@@ -3,9 +3,15 @@ import path from 'node:path';
 import { BrowserManager } from './browser/browser-manager';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
 import { registerRecordingHandlers } from './ipc/recording-handlers';
+import { registerTestHandlers } from './ipc/test-handlers';
+import { TestRunner } from './tests/test-runner';
+import { SpecFileRunner } from './tests/spec-file-runner';
+import { registerSpecTestHandlers } from './ipc/spec-test-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
+const testRunner = new TestRunner();
+const specFileRunner = new SpecFileRunner(app.getAppPath());
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -23,6 +29,8 @@ function createWindow(): void {
   browserManager = new BrowserManager();
   registerBrowserHandlers(browserManager);
   registerRecordingHandlers();
+  registerTestHandlers(testRunner, () => mainWindow);
+  registerSpecTestHandlers(specFileRunner, () => mainWindow);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -32,6 +40,8 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     browserManager?.dispose();
+    void testRunner.stop();
+    specFileRunner.stop();
     browserManager = null;
     mainWindow = null;
   });

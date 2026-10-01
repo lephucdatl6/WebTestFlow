@@ -271,6 +271,217 @@ h1 {
   border-top: 1px solid #3a464f;
 }
 
+.test-run-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin-top: 12px;
+  color: #c4ced5;
+  font-size: 13px;
+}
+
+.test-run-status strong {
+  color: #e8edf2;
+}
+
+.test-run-status.passed strong {
+  color: #77d69a;
+}
+
+.test-run-status.failed strong {
+  color: #f59b9b;
+}
+
+.test-run-status.stopped strong {
+  color: #f2c14e;
+}
+
+.test-run-status p {
+  flex-basis: 100%;
+  margin: 0;
+  color: #f59b9b;
+  overflow-wrap: anywhere;
+}
+
+.spec-test-panel {
+  min-width: 0;
+  margin: 18px 0 24px;
+  padding: 16px;
+  border: 1px solid #3a464f;
+  border-radius: 6px;
+  background: #1f2a31;
+}
+
+.spec-test-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.spec-test-header .eyebrow {
+  margin: 0 0 4px;
+}
+
+.spec-test-header h2 {
+  margin: 0;
+  color: #e8edf2;
+  font-size: 16px;
+}
+
+.spec-test-warning {
+  margin: 6px 0 0;
+  color: #c4ced5;
+  font-size: 12px;
+}
+
+.spec-file-name {
+  max-width: 100%;
+  color: #c4ced5;
+  overflow-wrap: anywhere;
+}
+
+.spec-test-error,
+.spec-test-output {
+  flex-basis: 100%;
+  max-height: 240px;
+  margin: 4px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid #3a464f;
+  border-radius: 4px;
+  background: #12181c;
+  font: 12px/1.5 Consolas, 'Courier New', monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.spec-test-error {
+  color: #f59b9b;
+}
+
+.spec-steps-section,
+.spec-error-details {
+  flex-basis: 100%;
+  min-width: 0;
+  margin-top: 10px;
+}
+
+.spec-steps-section > strong,
+.spec-error-details > summary {
+  color: #e8edf2;
+  font-size: 13px;
+}
+
+.spec-step-list {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spec-step {
+  min-width: 0;
+  padding: 8px 10px;
+  border-left: 3px solid #66747c;
+  background: #192228;
+}
+
+.spec-step.passed {
+  border-left-color: #77d69a;
+}
+
+.spec-step.failed {
+  border-left-color: #f07878;
+}
+
+.spec-step.running {
+  border-left-color: #f2c14e;
+}
+
+.spec-step-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: #dfe7ec;
+}
+
+.spec-step-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.spec-step-heading > span:last-child {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: #9eabb4;
+  font-size: 12px;
+}
+
+.spec-step-mark {
+  width: 16px;
+  flex: 0 0 16px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.spec-step.passed > .spec-step-heading .spec-step-mark {
+  color: #77d69a;
+}
+
+.spec-step.running > .spec-step-heading .spec-step-mark {
+  color: #f2c14e;
+}
+
+.spec-step.failed > .spec-step-heading .spec-step-mark {
+  color: #f07878;
+}
+
+.spec-step-failure {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 0 24px;
+  color: #f3a4a4;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.spec-step-detail {
+  margin: 5px 0 0 24px;
+  color: #aebbc3;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.spec-step .spec-step-list {
+  margin-left: 20px;
+}
+
+.spec-error-details > summary {
+  cursor: pointer;
+}
+
+.spec-error-details[open] > summary {
+  margin-bottom: 6px;
+}
+
+.spec-no-steps {
+  flex-basis: 100%;
+  margin: 8px 0 0;
+  color: #c4ced5;
+  font-size: 12px;
+}
+
+.spec-test-output {
+  color: #cfe3d5;
+}
+
 @media (max-width: 760px) {
   .recording-body.with-data {
     grid-template-columns: minmax(0, 1fr);
