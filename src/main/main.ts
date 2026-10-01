@@ -7,6 +7,7 @@ import { registerTestHandlers } from './ipc/test-handlers';
 import { TestRunner } from './tests/test-runner';
 import { SpecFileRunner } from './tests/spec-file-runner';
 import { registerSpecTestHandlers } from './ipc/spec-test-handlers';
+import { registerSecurityHandlers } from './ipc/security-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -31,6 +32,7 @@ function createWindow(): void {
   registerRecordingHandlers();
   registerTestHandlers(testRunner, () => mainWindow);
   registerSpecTestHandlers(specFileRunner, () => mainWindow);
+  registerSecurityHandlers();
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);

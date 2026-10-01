@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { RecordingDocument } from '../shared/types/recording';
 import type { TestRunProgress, TestRunResult } from '../shared/types/test-run';
 import type { SpecFileSelection, SpecTestProgress, SpecTestResult } from '../shared/types/spec-test';
+import type { SecurityAnalysisResult } from '../shared/types/security';
 
 contextBridge.exposeInMainWorld('webTestFlow', {
 	launch: () => ipcRenderer.invoke('browser:launch'),
@@ -33,5 +34,6 @@ contextBridge.exposeInMainWorld('webTestFlow', {
 		const listener = (_event: Electron.IpcRendererEvent, progress: SpecTestProgress) => callback(progress);
 		ipcRenderer.on('spec-test:progress', listener);
 		return () => ipcRenderer.removeListener('spec-test:progress', listener);
-	}
+	},
+	analyzeSecurityHeaders: (url: string) => ipcRenderer.invoke('security:analyze-headers', url) as Promise<SecurityAnalysisResult>
 });

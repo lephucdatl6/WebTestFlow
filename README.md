@@ -174,7 +174,9 @@ Assert → "Welcome" is visible
 
 ### Security Header Analyzer
 
-WebTestFlow is planned to analyze common HTTP security headers for a website.
+WebTestFlow analyzes common HTTP security response headers for a website.
+
+Security analysis uses a dedicated main-process HTTP request with the User-Agent `WebTestFlow Security Analyzer`. It follows normal HTTP redirects, analyzes the final response, and does not depend on opening the URL in Chromium or Playwright. A 403 or 429 may still be returned by a website's WAF or bot protection, WebTestFlow reports that response instead of attempting to bypass it.
 
 The initial headers include:
 
@@ -195,10 +197,14 @@ Content-Security-Policy      ✓ Present
 X-Frame-Options              ✗ Missing
 X-Content-Type-Options       ✓ Present
 Referrer-Policy              ✓ Present
-Permissions-Policy           ⚠ Not configured
+Permissions-Policy           ✗ Missing
 ```
 
 The analyzer explains what each header does and provides general configuration recommendations.
+
+The result also includes the HTTP status code, final URL after redirects, and basic response context. Responses in the 2xx range are treated as normal; 4xx and 5xx responses are shown as error responses; 403 and 429 responses may be shown as a possible challenge or blocked response. This context describes the response received by WebTestFlow and does not claim a definite bot challenge.
+
+Header values are marked **Present** whenever the response contains the header. A changing CSP nonce or directives such as `unsafe-inline` do not change the Present state. A conservative **Review** state is used only for an explicitly present `X-Content-Type-Options` value that is not `nosniff`.
 
 **Note:** This feature is a configuration check, not a complete security assessment.
 
@@ -409,12 +415,17 @@ WebTestFlow/
 
 ### Phase 6 - Security Analyzer
 
-* [ ] Strict-Transport-Security
-* [ ] Content-Security-Policy
-* [ ] X-Frame-Options
-* [ ] X-Content-Type-Options
-* [ ] Referrer-Policy
-* [ ] Permissions-Policy
+* [x] Analyze HTTP security response headers
+* [x] Strict-Transport-Security
+* [x] Content-Security-Policy
+* [x] X-Frame-Options
+* [x] X-Content-Type-Options
+* [x] Referrer-Policy
+* [x] Permissions-Policy
+* [x] Display header values and explanations
+* [x] Show present, missing, and review states
+* [x] Display HTTP status code and final URL
+* [x] Provide basic challenge/error response context
 
 ### Phase 7 - Assertions
 

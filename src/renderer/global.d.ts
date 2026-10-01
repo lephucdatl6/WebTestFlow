@@ -1,6 +1,7 @@
 import type { RecordingDocument } from '../shared/types/recording';
 import type { TestRunProgress, TestRunResult } from '../shared/types/test-run';
 import type { SpecFileSelection, SpecTestProgress, SpecTestResult } from '../shared/types/spec-test';
+import type { SecurityAnalysisResult } from '../shared/types/security';
 
 export {};
 
@@ -29,6 +30,7 @@ declare global {
       runSpecTest: () => Promise<SpecTestResult>;
       stopSpecTest: () => Promise<boolean>;
       onSpecTestProgress: (callback: (progress: SpecTestProgress) => void) => () => void;
+      analyzeSecurityHeaders: (url: string) => Promise<SecurityAnalysisResult>;
     };
   }
 }

@@ -1,9 +1,22 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, MousePointerClick, RotateCw, Type } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, MousePointerClick, RotateCw, Type, X } from 'lucide-react';
 import { recordingNameFromUrl, timestampedFilename } from '../shared/types/recording';
 import type { RecordedAction, RecordingDocument } from '../shared/types/recording';
 import type { TestRunProgress } from '../shared/types/test-run';
 import type { SpecFileSelection, SpecTestProgress, SpecTestResult, SpecTestStep } from '../shared/types/spec-test';
+import type { SecurityAnalysisResult, SecurityHeaderStatus, SecurityResponseContext } from '../shared/types/security';
+
+function securityHeaderStatusLabel(status: SecurityHeaderStatus, responseContext: SecurityResponseContext): string {
+  if (responseContext === 'normal') {
+    return status === 'present' ? 'Present' : status === 'review' ? 'Review' : 'Missing';
+  }
+
+  return status === 'present'
+    ? 'Present in received response'
+    : status === 'review'
+      ? 'Review received value'
+      : 'Missing in received response';
+}
 
 function SpecStepList({ steps, prefix = '' }: { steps: SpecTestStep[]; prefix?: string }) {
   return (
@@ -54,6 +67,10 @@ function App() {
   const [specTestProgress, setSpecTestProgress] = useState<SpecTestProgress | null>(null);
   const [specTestResult, setSpecTestResult] = useState<SpecTestResult | null>(null);
   const [isSpecTestRunning, setIsSpecTestRunning] = useState(false);
+  const [securityAnalysis, setSecurityAnalysis] = useState<SecurityAnalysisResult | null>(null);
+  const [securityError, setSecurityError] = useState('');
+  const [isAnalyzingSecurity, setIsAnalyzingSecurity] = useState(false);
+  const [showSecurityDetails, setShowSecurityDetails] = useState(false);
 
   useEffect(() => window.webTestFlow.onTestProgress(setTestRunProgress), []);
   useEffect(() => window.webTestFlow.onSpecTestProgress(setSpecTestProgress), []);
@@ -124,6 +141,21 @@ function App() {
       const finalUrl = await window.webTestFlow.openUrl(url);
       setUrl(finalUrl);
     }, 'Chromium is open');
+  }
+
+  async function analyzeSecurity() {
+    setSecurityError('');
+    setIsAnalyzingSecurity(true);
+    try {
+      const result = await window.webTestFlow.analyzeSecurityHeaders(url);
+      setSecurityAnalysis(result);
+      setShowSecurityDetails(false);
+    } catch (analysisError) {
+      setSecurityAnalysis(null);
+      setSecurityError(readableError(analysisError));
+    } finally {
+      setIsAnalyzingSecurity(false);
+    }
   }
 
   async function toggleRecording() {
@@ -314,10 +346,64 @@ function App() {
         <button type="button" disabled={isBusy} onClick={() => void run(loadSpecTest, 'Playwright test loaded')}>
           Load Playwright
         </button>
+        <button type="button" disabled={isBusy || isAnalyzingSecurity} onClick={() => void analyzeSecurity()}>
+          {isAnalyzingSecurity ? 'Analyzing...' : 'Analyze Security'}
+        </button>
         {/* <button type="button" disabled={isBusy} onClick={() => void closeBrowser()}>
           Close
         </button> */}
       </form>
+      {(securityAnalysis || isAnalyzingSecurity || securityError) ? <section className="security-section" aria-labelledby="security-heading">
+        <div className="security-section-header">
+          <strong id="security-heading">Security Headers</strong>
+          {securityAnalysis ? (
+            <button
+              type="button"
+              className="security-details-toggle"
+              onClick={() => setShowSecurityDetails((visible) => !visible)}
+            >
+              {showSecurityDetails ? <>Hide Details <ChevronUp aria-hidden="true" size={14} /></> : <>View More <ChevronDown aria-hidden="true" size={14} /></>}
+            </button>
+          ) : null}
+        </div>
+        {securityAnalysis ? (
+          <>
+            <div className="security-badges">
+              {securityAnalysis.headers.map((header) => (
+                <span className={`security-badge ${header.status}`} key={header.name}>
+                  {header.status === 'present' ? <Check aria-hidden="true" size={14} /> : header.status === 'review' ? <AlertTriangle aria-hidden="true" size={14} /> : <X aria-hidden="true" size={14} />}
+                  {header.name}
+                </span>
+              ))}
+            </div>
+            <div className={`security-response ${securityAnalysis.responseContext}`}>
+              <span><b>Status:</b> {securityAnalysis.statusCode}{securityAnalysis.statusText ? ` ${securityAnalysis.statusText}` : ''}</span>
+              <span><b>Final URL:</b> {securityAnalysis.finalUrl}</span>
+              {securityAnalysis.redirects.length > 0 ? <span><b>Redirects:</b> {securityAnalysis.redirects.length}</span> : null}
+              <span>{securityAnalysis.responseMessage}</span>
+              {securityAnalysis.responseWarning ? <span className="security-response-warning">{securityAnalysis.responseWarning}</span> : null}
+            </div>
+            {showSecurityDetails ? (
+              <div className="security-details">
+                {securityAnalysis.headers.map((header) => (
+                  <article className={`security-detail ${header.status}`} key={header.name}>
+                    <h3>
+                      {header.status === 'present' ? <Check aria-hidden="true" size={16} /> : header.status === 'review' ? <AlertTriangle aria-hidden="true" size={16} /> : <X aria-hidden="true" size={16} />}
+                      {header.name}
+                    </h3>
+                    <strong>{securityHeaderStatusLabel(header.status, securityAnalysis.responseContext)}</strong>
+                    {header.value ? <p><b>Value:</b> {header.value}</p> : null}
+                    <p>{header.explanation}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <p className="security-empty">Analyze an opened URL to check its response headers.</p>
+        )}
+        {securityError ? <p className="security-error" role="alert">{securityError}</p> : null}
+      </section> : null}
       <section className="workspace" aria-label="Browser workspace">
         <div className={showStructuredData ? 'workspace-content workspace-content-expanded' : 'workspace-content'}>
           <p className="eyebrow">Action Recording</p>
