@@ -48,7 +48,7 @@ Assert → URL contains "/dashboard"
 Assert → "Welcome" is visible
 ```
 
-The goal is to reduce the barrier to browser test automation while still using Playwright as the underlying automation engine.
+The goal is to reduce the barrier to browser test automation while still using Playwright as the underlying automation engine. WebTestFlow can be used to create repeatable functional and smoke tests for critical web application workflows.
 
 ---
 
@@ -61,8 +61,21 @@ Enter a website URL and open it inside the application's controlled browser.
 * URL validation
 * Website navigation
 * Browser interaction
-* Form submission
-* File uploads are planned
+* HTTP and HTTPS protocol restriction
+* Automatic `https://` prefix for hostnames entered without a protocol
+
+### Input and Locator Validation
+
+WebTestFlow validates inputs at the boundaries where they are used:
+
+* Website URLs are parsed and restricted to HTTP or HTTPS before navigation.
+* JSON recordings are checked for the required version, name, creation time, and action list when loaded.
+* Playwright files are restricted to existing `.spec.ts` files when loaded.
+* Recorded semantic locators are used only when they uniquely identify the target element.
+* Ambiguous placeholders, labels, roles, names, or links fall back to a more specific stable CSS selector instead of blindly using `.first()` or `.nth()`.
+* During JSON replay, a semantic locator is checked at runtime and the recorded CSS selector is used when it uniquely identifies the target.
+
+This is locator and input validation for reliable test recording and replay. It is not a complete website security or accessibility audit.
 
 ### Action Recorder
 
@@ -100,7 +113,7 @@ The underlying action data contains both selector formats:
 
 Selector discovery prioritizes stable attributes and semantic information such as `id`, `name`, `placeholder`, `aria-label`, `href`, `alt`, and accessible text before falling back to less specific selectors. Custom elements are also inspected for nested interactive elements.
 
-Recorded actions currently remain in memory during the active recording session. They can be reviewed in the action list or structured JSON view, then downloaded as a `webtestflow-recording.json` file. Long URLs and selectors are shortened in the action list but remain complete in JSON. The recorder focuses on **semantic browser interactions rather than mouse coordinates**:
+Recorded actions remain in memory during the active recording session. They can be reviewed in the action list or structured JSON view, then saved as a versioned JSON recording through the native file dialog. Long URLs and selectors are shortened in the action list but remain complete in JSON. The recorder focuses on **semantic browser interactions rather than mouse coordinates**:
 
 ```text
 Click → Button "Sign In"
@@ -191,21 +204,24 @@ The analyzer explains what each header does and provides general configuration r
 
 ### Test Reports
 
-Future test execution can provide:
+Test execution currently provides:
 
-* Pass/fail status
-* Execution logs
+* Live running-step status for JSON recordings and loaded Playwright tests
+* Passed, failed, and stopped status
+* Step-level results for JSON replay actions
+* Named `test.step()` results for exported Playwright tests and edited specs that use `test.step()`
 * Test duration
-* Screenshots
-* Security analysis results
+* Expandable Playwright error details, including locator errors and source lines when reported
+
+Planned reporting features include screenshots and security analysis results.
 
 ### Test Storage
 
-Recordings can be saved and loaded as versioned JSON files through native Electron file dialogs.
+Recordings can be saved and loaded as versioned JSON files through native Electron file dialogs. JSON remains WebTestFlow's internal source format for editing and replay. SQLite and automatic background persistence are not currently implemented.
 
 ### Playwright Export
 
-Recorded tests can be exported as Playwright TypeScript test files. Actions with semantic locators use those locators, other actions fall back to CSS locators.
+Recorded tests can be exported as editable Playwright TypeScript test files. Actions with semantic locators use those locators, other actions fall back to CSS locators. Each exported navigation, click, fill, and Enter action is wrapped in a named `test.step()` so the exported test can report progress while it runs.
 
 Exported `.spec.ts` files can be edited and loaded back into WebTestFlow for direct Playwright Test execution. This provides a separate workflow for users who want to edit generated Playwright code manually before running it.
 
@@ -230,13 +246,23 @@ Example:
 
 ```typescript
 test('Login Test', async ({ page }) => {
-  await page.goto('https://example.com/login');
-  await page.getByLabel('Email').fill('test@example.com');
-  await page.getByLabel('Password').fill('password123');
-  await page.getByRole('button', { name: 'Sign In' }).click();
-  await expect(page).toHaveURL(/dashboard/);
+     await test.step('Navigate to https://example.com/login', async () => {
+          await page.goto('https://example.com/login');
+     });
+     await test.step('Fill Email', async () => {
+          await page.getByLabel('Email').fill('test@example.com');
+     });
+     await test.step('Fill Password', async () => {
+          await page.getByLabel('Password').fill('password123');
+     });
+     await test.step('Click Sign In', async () => {
+          await page.getByRole('button', { name: 'Sign In' }).click();
+     });
+     await expect(page).toHaveURL(/dashboard/);
 });
 ```
+
+Use **Load Playwright** to select an edited `.spec.ts` file and **Run Test** to execute it directly with Playwright Test. The selected file is not modified, and it is never converted back into JSON. For individual live steps in a manually edited file, wrap actions in `test.step()`; ordinary unwrapped Playwright API calls still run normally, but Playwright may not report them as named steps.
 
 ---
 
@@ -304,31 +330,18 @@ Used for:
 WebTestFlow/
 │
 ├── src/
-│   ├── main/
-│   │   ├── main.ts
-│   │   ├── ipc/
-│   │   ├── browser/
-│   │   ├── security/
-│   │   ├── tests/
-│   │   └── storage/
+│   ├── main/                # Electron main process and services
+│   │   ├── browser/         # Browser control and recording
+│   │   ├── ipc/             # Communication between processes
+│   │   ├── recording/       # JSON storage and Playwright export
+│   │   └── tests/           # JSON replay and spec test execution
 │   │
-│   ├── renderer/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── hooks/
-│   │   ├── services/
-│   │   └── types/
+│   ├── preload/             # Secure IPC bridge
 │   │
-│   └── shared/
-│       ├── types/
-│       └── constants/
-│
-├── tests/
-│   ├── unit/
-│   └── integration/
-│
-├── test-cases/
-├── screenshots/
+│   ├── renderer/            # React desktop application UI
+│   │   └── components/      # UI components
+│   │
+│   └── shared/              # Shared types and utilities
 │
 ├── package.json
 ├── tsconfig.json
@@ -390,6 +403,9 @@ WebTestFlow/
 * [x] Stop tests
 * [x] Pass/fail status
 * [x] Error handling
+* [x] Live replay step progress
+* [x] Per-action pass/fail results
+* [x] Expandable replay error details
 
 ### Phase 6 - Security Analyzer
 
@@ -407,19 +423,21 @@ WebTestFlow/
 * [ ] Element existence
 * [ ] Page title
 * [ ] Element state
+* [ ] Validate smoke-test workflows
 
 ### Phase 8 - Reporting
 
-* [ ] Screenshots
-* [ ] Execution logs
-* [ ] Test duration
-* [ ] Pass/fail summary
+* [ ] Failure screenshots
+* [x] Execution progress and results
+* [x] Test duration
+* [x] Pass/fail summary
 * [ ] Security report
 
 ### Phase 9 - Advanced Test Execution
 
 * [ ] Test suites
 * [ ] Run multiple tests
+* [ ] Create smoke-test suites
 * [ ] Parallel test execution
 * [ ] Retry failed tests
 * [ ] Test execution history
@@ -434,6 +452,7 @@ The project focuses on:
 
 * Web application testing
 * Test automation
+* Smoke testing
 * Browser automation
 * Test case design
 * Bug reproduction
