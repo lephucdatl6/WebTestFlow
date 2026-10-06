@@ -1,59 +1,38 @@
 import { Browser, chromium, Locator, Page } from 'playwright';
+import { expect } from '@playwright/test';
+import { parseLocatorExpression, resolveLocator } from '../browser/locator-resolution';
 import { RecordedAction } from '../../shared/types/recording';
 import { SpecTestStep } from '../../shared/types/spec-test';
 import { TestRunProgress, TestRunResult } from '../../shared/types/test-run';
 
-function locatorFor(page: Page, action: Extract<RecordedAction, { selector: string }>): Locator {
-	const expression = action.playwright;
-	const cssMatch = expression?.match(/^locator\(("(?:\\.|[^"\\])*")\)$/);
-	if (cssMatch) {
-		return page.locator(JSON.parse(cssMatch[1]) as string);
-	}
-
-	const roleMatch = expression?.match(/^getByRole\((['"])(.*?)\1,\s*\{\s*name:\s*("(?:\\.|[^"\\])*"),?\s*(?:exact:\s*(true|false))?\s*\}\)$/);
-	if (roleMatch) {
-		return page.getByRole(roleMatch[2] as Parameters<Page['getByRole']>[0], {
-			name: JSON.parse(roleMatch[3]) as string,
-			exact: roleMatch[4] === 'true'
-		});
-	}
-
-	const labelMatch = expression?.match(/^getBy(Placeholder|Label)\(("(?:\\.|[^"\\])*")(?:,\s*\{\s*exact:\s*(true|false)\s*\})?\)$/);
-	if (labelMatch) {
-		const accessibleName = JSON.parse(labelMatch[2]) as string;
-		const options = { exact: labelMatch[3] === 'true' };
-		return labelMatch[1] === 'Placeholder'
-			? page.getByPlaceholder(accessibleName, options)
-			: page.getByLabel(accessibleName, options);
-	}
-
-	return page.locator(action.selector);
-}
-
 async function uniqueLocatorFor(page: Page, action: Extract<RecordedAction, { selector: string }>): Promise<Locator> {
-	const semanticLocator = locatorFor(page, action);
-	if (await semanticLocator.count() === 1) {
-		return semanticLocator;
+	const resolvedLocator = resolveLocator(page, action);
+	if (await resolvedLocator.count() === 1) {
+		return resolvedLocator;
 	}
 
-	const cssLocator = page.locator(action.selector);
-	if (await cssLocator.count() === 1) {
-		return cssLocator;
+	if (!parseLocatorExpression(action.selector)) {
+		const cssLocator = page.locator(action.selector);
+		if (await cssLocator.count() === 1) {
+			return cssLocator;
+		}
 	}
 
-	return semanticLocator;
+	return resolvedLocator;
 }
 
 async function clickLocatorFor(page: Page, action: Extract<RecordedAction, { type: 'click' }>): Promise<Locator> {
-	const semanticLocator = locatorFor(page, action);
+	const semanticLocator = resolveLocator(page, action);
 	const semanticCount = await semanticLocator.count();
 	if (semanticCount === 1 && await semanticLocator.isVisible()) {
 		return semanticLocator;
 	}
 
-	const cssLocator = page.locator(action.selector);
-	if (await cssLocator.count() === 1) {
-		return cssLocator;
+	if (!parseLocatorExpression(action.selector)) {
+		const cssLocator = page.locator(action.selector);
+		if (await cssLocator.count() === 1) {
+			return cssLocator;
+		}
 	}
 
 	return semanticLocator;
@@ -74,17 +53,88 @@ function actionLabel(action: RecordedAction): string {
 		case 'click': return `Click ${target}`;
 		case 'fill': return `Fill ${target}`;
 		case 'submit': return `Press Enter on ${target}`;
+		case 'check': return `Check ${target}`;
+		case 'uncheck': return `Uncheck ${target}`;
+		case 'assert-url': return `Assert URL contains ${JSON.stringify(action.value)}`;
+		case 'assert-text': return `Assert ${JSON.stringify(action.text)} is visible`;
+		case 'assert-element': return `Assert ${target} exists`;
+		case 'assert-title': return `Assert page title ${JSON.stringify(action.title)}`;
+		case 'assert-state': return `Assert ${target} is ${action.state}`;
 	}
 }
 
-function actionStep(action: RecordedAction, index: number): SpecTestStep {
+function actionStep(action: RecordedAction): SpecTestStep {
 	const title = actionLabel(action);
-	const detail = action.type === 'fill' ? `Value: ${action.value.slice(0, 80)}${action.value.length > 80 ? '…' : ''}` : undefined;
+	const detail = action.type === 'fill'
+		? `Value: ${action.value.slice(0, 80)}${action.value.length > 80 ? '…' : ''}`
+		: action.type === 'assert-url'
+			? `Expected: URL contains ${JSON.stringify(action.value)}`
+			: action.type === 'assert-text'
+				? `Expected: ${JSON.stringify(action.text)} is visible`
+				: action.type === 'assert-title'
+					? `Expected title: ${JSON.stringify(action.title)}`
+					: action.type === 'assert-state'
+						? `Expected state: ${action.state}`
+						: action.type === 'assert-element'
+							? 'Expected element to exist'
+							: undefined;
 	return {
 		title,
 		status: 'running',
 		detail
 	};
+}
+
+async function runAssertion(page: Page, action: Extract<RecordedAction, { type: `assert-${string}` }>): Promise<string | undefined> {
+	switch (action.type) {
+		case 'assert-url': {
+			const actual = page.url();
+			if (!actual.includes(action.value)) {
+				throw new Error(`Expected URL to contain ${JSON.stringify(action.value)}. Actual URL: ${actual}`);
+			}
+			return `Actual URL: ${actual}`;
+		}
+		case 'assert-text':
+			try {
+				await expect(page.getByText(action.text)).toBeVisible();
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'Text was not visible.';
+				throw new Error(`Expected text ${JSON.stringify(action.text)} to be visible. ${message}`);
+			}
+			return `Visible text: ${JSON.stringify(action.text)}`;
+		case 'assert-element': {
+			const locator = await uniqueLocatorFor(page, action);
+			try {
+				await expect(locator.first()).toBeAttached();
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'Element was not found.';
+				throw new Error(`Expected element ${action.playwright ?? action.selector} to exist. ${message}`);
+			}
+			return `Found element: ${action.playwright ?? action.selector}`;
+		}
+		case 'assert-title': {
+			const actual = await page.title();
+			if (actual !== action.title) {
+				throw new Error(`Expected page title ${JSON.stringify(action.title)}. Actual title: ${JSON.stringify(actual)}`);
+			}
+			return `Actual title: ${JSON.stringify(actual)}`;
+		}
+		case 'assert-state': {
+			const locator = await uniqueLocatorFor(page, action);
+			try {
+				switch (action.state) {
+					case 'enabled': await expect(locator).toBeEnabled(); break;
+					case 'disabled': await expect(locator).toBeDisabled(); break;
+					case 'checked': await expect(locator).toBeChecked(); break;
+					case 'visible': await expect(locator).toBeVisible(); break;
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : 'Element state did not match.';
+				throw new Error(`Expected ${action.playwright ?? action.selector} to be ${action.state}. ${message}`);
+			}
+			return `Actual state: ${action.state}`;
+		}
+	}
 }
 
 export class TestRunner {
@@ -160,7 +210,7 @@ export class TestRunner {
 					nextAction?.type === 'fill' &&
 					(action.selector === nextAction.selector || action.playwright === nextAction.playwright)
 				) {
-					steps.push({ ...actionStep(action, currentStep), status: 'skipped' });
+					steps.push({ ...actionStep(action), status: 'skipped' });
 					currentStep += 1;
 					emit('running');
 					continue;
@@ -168,7 +218,7 @@ export class TestRunner {
 
 				currentAction = actionLabel(action);
 				const stepStarted = Date.now();
-				const stepIndex = steps.push(actionStep(action, currentStep)) - 1;
+				const stepIndex = steps.push(actionStep(action)) - 1;
 				emit('running');
 
 				try {
@@ -180,7 +230,28 @@ export class TestRunner {
 							await (await clickLocatorFor(page, action)).click();
 							break;
 						case 'fill':
-							await (await uniqueLocatorFor(page, action)).fill(action.value);
+							{
+								const locator = await uniqueLocatorFor(page, action);
+								const isCheckbox = await locator.evaluate((element) => element instanceof HTMLInputElement && element.type === 'checkbox');
+								if (isCheckbox) {
+									const value = action.value.toLowerCase();
+									if (['on', 'true', '1', 'checked'].includes(value)) {
+										await locator.check();
+									} else if (['', 'off', 'false', '0', 'unchecked'].includes(value)) {
+										await locator.uncheck();
+									} else {
+										throw new Error(`Legacy fill value ${JSON.stringify(action.value)} cannot be applied to a checkbox.`);
+									}
+								} else {
+									await locator.fill(action.value);
+								}
+							}
+							break;
+						case 'check':
+							await (await uniqueLocatorFor(page, action)).check();
+							break;
+						case 'uncheck':
+							await (await uniqueLocatorFor(page, action)).uncheck();
 							break;
 						case 'submit': {
 							const previousAction = actions[index - 1];
@@ -188,11 +259,24 @@ export class TestRunner {
 							await (await uniqueLocatorFor(page, inputAction)).press('Enter');
 							break;
 						}
+						default: {
+							const actual = await runAssertion(page, action);
+							if (actual) {
+								steps[stepIndex] = { ...steps[stepIndex], detail: `${steps[stepIndex].detail}\n${actual}` };
+							}
+							break;
+						}
 					}
 					steps[stepIndex] = { ...steps[stepIndex], status: 'passed', durationMs: Date.now() - stepStarted };
 				} catch (error) {
 					const message = error instanceof Error ? error.message : 'The action failed.';
-					steps[stepIndex] = { ...steps[stepIndex], status: 'failed', durationMs: Date.now() - stepStarted, error: message };
+					steps[stepIndex] = {
+						...steps[stepIndex],
+						status: 'failed',
+						durationMs: Date.now() - stepStarted,
+						detail: action.type.startsWith('assert-') ? `${steps[stepIndex].detail}\n${message}` : steps[stepIndex].detail,
+						error: message
+					};
 					throw error;
 				}
 

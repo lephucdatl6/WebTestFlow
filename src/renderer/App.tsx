@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, MousePointerClick, RotateCw, Type, X } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Code2, GripVertical, MousePointerClick, Play, Plus, RotateCw, Save, Trash2, Type, X } from 'lucide-react';
 import { recordingNameFromUrl, timestampedFilename } from '../shared/types/recording';
-import type { RecordedAction, RecordingDocument } from '../shared/types/recording';
+import type { RecordedAction, RecordedAssertion, RecordingDocument } from '../shared/types/recording';
 import type { TestRunProgress } from '../shared/types/test-run';
 import type { SpecFileSelection, SpecTestProgress, SpecTestResult, SpecTestStep } from '../shared/types/spec-test';
 import type { SecurityAnalysisResult, SecurityHeaderStatus, SecurityResponseContext } from '../shared/types/security';
@@ -51,6 +51,42 @@ function SpecStepList({ steps, prefix = '' }: { steps: SpecTestStep[]; prefix?: 
   );
 }
 
+function isRecordedAction(value: unknown): value is RecordedAction {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+
+  const action = value as Record<string, unknown>;
+  const hasValidLocatorMetadata = ['playwright', 'description'].every((key) => (
+    action[key] === undefined || typeof action[key] === 'string'
+  ));
+
+  switch (action.type) {
+    case 'navigate':
+      return typeof action.url === 'string';
+    case 'click':
+    case 'submit':
+    case 'check':
+    case 'uncheck':
+    case 'assert-element':
+      return typeof action.selector === 'string' && hasValidLocatorMetadata;
+    case 'fill':
+      return typeof action.selector === 'string' && typeof action.value === 'string' && hasValidLocatorMetadata;
+    case 'assert-url':
+      return typeof action.value === 'string';
+    case 'assert-text':
+      return typeof action.text === 'string';
+    case 'assert-title':
+      return typeof action.title === 'string';
+    case 'assert-state':
+      return typeof action.selector === 'string'
+        && hasValidLocatorMetadata
+        && ['enabled', 'disabled', 'checked', 'visible'].includes(String(action.state));
+    default:
+      return false;
+  }
+}
+
 function App() {
   const [url, setUrl] = useState('https://example.com');
   const [selector, setSelector] = useState('');
@@ -59,8 +95,19 @@ function App() {
   const [error, setError] = useState('');
   const [isBusy, setIsBusy] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [hasRecordingSession, setHasRecordingSession] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showNewRecordingConfirmation, setShowNewRecordingConfirmation] = useState(false);
   const [showStructuredData, setShowStructuredData] = useState(false);
+  const [isEditingActionsJson, setIsEditingActionsJson] = useState(false);
+  const [actionJsonDraft, setActionJsonDraft] = useState('');
+  const [actionJsonError, setActionJsonError] = useState('');
   const [recordedActions, setRecordedActions] = useState<RecordedAction[]>([]);
+  const [dragOverActionIndex, setDragOverActionIndex] = useState<number | null>(null);
+  const [showAssertionForm, setShowAssertionForm] = useState(false);
+  const [assertionType, setAssertionType] = useState<'assert-url' | 'assert-text' | 'assert-element' | 'assert-title' | 'assert-state'>('assert-url');
+  const [assertionValue, setAssertionValue] = useState('');
+  const [assertionState, setAssertionState] = useState<'enabled' | 'disabled' | 'checked' | 'visible'>('enabled');
   const [recordingStartUrl, setRecordingStartUrl] = useState<string | undefined>();
   const [testRunProgress, setTestRunProgress] = useState<TestRunProgress | null>(null);
   const [loadedSpecFile, setLoadedSpecFile] = useState<SpecFileSelection | null>(null);
@@ -71,6 +118,7 @@ function App() {
   const [securityError, setSecurityError] = useState('');
   const [isAnalyzingSecurity, setIsAnalyzingSecurity] = useState(false);
   const [showSecurityDetails, setShowSecurityDetails] = useState(false);
+  const savedActionsSnapshot = useRef<string | null>(null);
 
   useEffect(() => window.webTestFlow.onTestProgress(setTestRunProgress), []);
   useEffect(() => window.webTestFlow.onSpecTestProgress(setSpecTestProgress), []);
@@ -82,7 +130,24 @@ function App() {
 
     const interval = window.setInterval(async () => {
       const actions = await window.webTestFlow.getRecordingActions();
-      setRecordedActions(actions as RecordedAction[]);
+      if (JSON.stringify(actions) !== savedActionsSnapshot.current) {
+        setHasUnsavedChanges(true);
+      }
+      setRecordedActions((current) => {
+        const merged = [...actions];
+        const matched = new Set<number>();
+        for (const assertion of current.filter((action) => action.type.startsWith('assert-'))) {
+          const matchingIndex = merged.findIndex((action, index) => (
+            !matched.has(index) && JSON.stringify(action) === JSON.stringify(assertion)
+          ));
+          if (matchingIndex >= 0) {
+            matched.add(matchingIndex);
+          } else {
+            merged.push(assertion);
+          }
+        }
+        return merged;
+      });
 
       if (actions.length > 0) {
         const latest = actions[actions.length - 1];
@@ -106,8 +171,12 @@ function App() {
       try {
         const isBrowserOpen = await window.webTestFlow.isBrowserOpen();
         if (!isBrowserOpen && isRecording) {
+          const actions = await window.webTestFlow.getRecordingActions();
+          setRecordedActions(actions);
+          setHasUnsavedChanges(JSON.stringify(actions) !== savedActionsSnapshot.current);
+          setHasRecordingSession(true);
           setIsRecording(false);
-          setStatus('Chromium is closed');
+          setStatus('Recording stopped: browser disconnected');
         }
       } catch {
         // The browser status check is best-effort while the app is closing.
@@ -158,30 +227,81 @@ function App() {
     }
   }
 
-  async function toggleRecording() {
-    if (isRecording) {
-      const actions = await window.webTestFlow.stopRecording();
-      setRecordedActions(actions as RecordedAction[]);
-      setIsRecording(false);
-      setStatus(actions.length > 0 ? `Recording stopped: ${actions.length} action(s)` : 'Recording stopped');
+  async function startNewRecording() {
+    if (hasUnsavedChanges) {
+      setShowNewRecordingConfirmation(true);
       return;
     }
+    await beginNewRecording();
+  }
 
+  async function confirmNewRecording() {
+    setShowNewRecordingConfirmation(false);
+    await beginNewRecording();
+  }
+
+  async function beginNewRecording() {
     await run(async () => {
       const startUrl = await window.webTestFlow.startRecording();
+      savedActionsSnapshot.current = JSON.stringify([]);
       setRecordedActions([]);
       setRecordingStartUrl(startUrl);
+      setHasRecordingSession(true);
+      setHasUnsavedChanges(false);
+      setTestRunProgress(null);
+      setSpecTestProgress(null);
+      setSpecTestResult(null);
+      setShowStructuredData(false);
+      setIsEditingActionsJson(false);
+      setActionJsonDraft('');
+      setActionJsonError('');
+      setShowAssertionForm(false);
+      setShowNewRecordingConfirmation(false);
       setIsRecording(true);
       setStatus('Recording started');
     }, 'Recording started');
+  }
+
+  async function continueRecording() {
+    await run(async () => {
+      await window.webTestFlow.startRecording(recordedActions);
+      setHasRecordingSession(true);
+      setIsRecording(true);
+      setStatus('Recording continued');
+    }, 'Recording continued');
+  }
+
+  async function stopRecording() {
+    try {
+      const actions = await window.webTestFlow.stopRecording();
+      setRecordedActions(actions);
+      setHasRecordingSession(true);
+      setHasUnsavedChanges(JSON.stringify(actions) !== savedActionsSnapshot.current);
+      setIsRecording(false);
+      setStatus(actions.length > 0 ? `Recording stopped: ${actions.length} action(s)` : 'Recording stopped');
+    } catch (recordingError) {
+      setError(readableError(recordingError));
+      setIsRecording(false);
+      setHasRecordingSession(true);
+      setStatus('Recording stopped with an error');
+    }
   }
 
   async function closeBrowser() {
     await run(async () => {
       await window.webTestFlow.close();
       setIsRecording(false);
+      setHasRecordingSession(false);
+      setHasUnsavedChanges(false);
+      setShowNewRecordingConfirmation(false);
+      savedActionsSnapshot.current = null;
       setRecordedActions([]);
+      setRecordingStartUrl(undefined);
+      setTestRunProgress(null);
       setShowStructuredData(false);
+      setIsEditingActionsJson(false);
+      setActionJsonDraft('');
+      setActionJsonError('');
     }, 'Chromium is closed');
   }
 
@@ -208,8 +328,97 @@ function App() {
   }
 
   async function saveRecording() {
-    const saved = await window.webTestFlow.saveRecording(createRecordingDocument());
+    const document = createRecordingDocument();
+    const saved = await window.webTestFlow.saveRecording(document);
+    if (saved) {
+      savedActionsSnapshot.current = JSON.stringify(document.actions);
+      setHasUnsavedChanges(false);
+    }
     setStatus(saved ? 'Recording saved' : 'Save cancelled');
+  }
+
+  function editActionsJson() {
+    setActionJsonDraft(JSON.stringify(recordedActions, null, 2));
+    setActionJsonError('');
+    setIsEditingActionsJson(true);
+  }
+
+  function cancelActionsJsonEdit() {
+    setActionJsonDraft('');
+    setActionJsonError('');
+    setIsEditingActionsJson(false);
+  }
+
+  function applyActionsJsonEdit() {
+    try {
+      const parsed: unknown = JSON.parse(actionJsonDraft);
+      if (!Array.isArray(parsed) || !parsed.every(isRecordedAction)) {
+        throw new Error('Enter a JSON array containing valid WebTestFlow actions and assertions.');
+      }
+
+      const actions = parsed as RecordedAction[];
+      setRecordedActions(actions);
+      setHasUnsavedChanges(JSON.stringify(actions) !== savedActionsSnapshot.current);
+      setActionJsonDraft('');
+      setActionJsonError('');
+      setIsEditingActionsJson(false);
+    } catch (editError) {
+      setActionJsonError(editError instanceof Error ? editError.message : 'The action JSON is invalid.');
+    }
+  }
+
+  function moveAction(fromIndex: number, toIndex: number) {
+    setRecordedActions((actions) => {
+      if (fromIndex < 0 || fromIndex >= actions.length || toIndex < 0 || toIndex >= actions.length || fromIndex === toIndex) {
+        return actions;
+      }
+
+      const reordered = [...actions];
+      const [action] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, action);
+      savedActionsSnapshot.current ??= JSON.stringify(actions);
+      return reordered;
+    });
+    setHasUnsavedChanges(true);
+    setDragOverActionIndex(null);
+  }
+
+  function deleteAction(index: number) {
+    setRecordedActions((actions) => actions.filter((_action, actionIndex) => actionIndex !== index));
+    setHasUnsavedChanges(true);
+  }
+
+  async function addAssertion(event: FormEvent) {
+    event.preventDefault();
+    const enteredValue = assertionValue.trim();
+    if (!enteredValue) {
+      setError('Enter a value for this assertion.');
+      return;
+    }
+
+    const assertion: RecordedAssertion = assertionType === 'assert-url'
+      ? { type: 'assert-url', value: enteredValue }
+      : assertionType === 'assert-text'
+        ? { type: 'assert-text', text: enteredValue }
+        : assertionType === 'assert-element'
+          ? { type: 'assert-element', selector: enteredValue }
+          : assertionType === 'assert-title'
+            ? { type: 'assert-title', title: enteredValue }
+            : { type: 'assert-state', selector: enteredValue, state: assertionState };
+
+    try {
+      if (isRecording) {
+        await window.webTestFlow.addRecordingAssertion(assertion);
+      }
+      setRecordedActions((actions) => [...actions, assertion]);
+      setHasUnsavedChanges(true);
+    } catch (assertionError) {
+      setError(readableError(assertionError));
+      return;
+    }
+    setAssertionValue('');
+    setShowAssertionForm(false);
+    setError('');
   }
 
   async function loadRecording() {
@@ -220,6 +429,14 @@ function App() {
     }
 
     setRecordedActions(document.actions);
+    savedActionsSnapshot.current = JSON.stringify(document.actions);
+    setHasUnsavedChanges(false);
+    setHasRecordingSession(true);
+    setIsRecording(false);
+    setTestRunProgress(null);
+    setIsEditingActionsJson(false);
+    setActionJsonDraft('');
+    setActionJsonError('');
     setRecordingStartUrl(document.startUrl);
     if (document.startUrl) {
       setUrl(document.startUrl);
@@ -337,10 +554,7 @@ function App() {
           aria-label="Website URL"
         />
         <button type="submit" disabled={isBusy}>Open</button>
-        <button type="button" className={isRecording ? 'recording' : ''} disabled={isBusy} onClick={() => void toggleRecording()}>
-          {isRecording ? 'Stop Recording' : 'Record'}
-        </button>
-        <button type="button" disabled={isBusy} onClick={() => void run(loadRecording, 'Recording loaded')}>
+        <button type="button" disabled={isBusy || isRecording || isEditingActionsJson} onClick={() => void run(loadRecording, 'Recording loaded')}>
           Load JSON
         </button>
         <button type="button" disabled={isBusy} onClick={() => void run(loadSpecTest, 'Playwright test loaded')}>
@@ -353,6 +567,18 @@ function App() {
           Close
         </button> */}
       </form>
+      {showNewRecordingConfirmation ? (
+        <div className="recording-confirmation-backdrop">
+          <section className="recording-confirmation" role="dialog" aria-modal="true" aria-labelledby="new-recording-confirmation-title">
+            <h2 id="new-recording-confirmation-title">Unsaved recording</h2>
+            <p>Start a new recording? Your current recording has unsaved changes.</p>
+            <div className="recording-confirmation-actions">
+              <button type="button" onClick={() => setShowNewRecordingConfirmation(false)}>Cancel</button>
+              <button type="button" className="recording-confirm-new" onClick={() => void confirmNewRecording()}>New Recording</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {(securityAnalysis || isAnalyzingSecurity || securityError) ? <section className="security-section" aria-labelledby="security-heading">
         <div className="security-section-header">
           <strong id="security-heading">Security Headers</strong>
@@ -406,7 +632,29 @@ function App() {
       </section> : null}
       <section className="workspace" aria-label="Browser workspace">
         <div className={showStructuredData ? 'workspace-content workspace-content-expanded' : 'workspace-content'}>
-          <p className="eyebrow">Action Recording</p>
+          <div className="action-recording-heading">
+            <p className="eyebrow">Action Recording</p>
+            <div className="recording-workflow-controls">
+              {isRecording ? (
+                <button type="button" className="recording-stop-button" onClick={() => void stopRecording()} disabled={isBusy}>
+                  Stop Recording
+                </button>
+              ) : hasRecordingSession ? (
+                <>
+                  <button type="button" onClick={() => void continueRecording()} disabled={isBusy || isSpecTestRunning || testRunProgress?.status === 'running'}>
+                    Continue Recording
+                  </button>
+                  <button type="button" onClick={() => void startNewRecording()} disabled={isBusy || isSpecTestRunning || testRunProgress?.status === 'running'}>
+                    New Recording
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={() => void startNewRecording()} disabled={isBusy || isSpecTestRunning || testRunProgress?.status === 'running'}>
+                  Start Recording
+                </button>
+              )}
+            </div>
+          </div>
           <h1 className="status-heading" title={status}>{status}</h1>
           <p>Use the controls above to drive the Chromium window and capture actions for replay later.</p>
 
@@ -414,16 +662,13 @@ function App() {
             <div className="recording-header">
               <div className="recording-title">
                 <span className={isRecording ? 'recording-indicator active' : 'recording-indicator'} aria-hidden="true" />
-                <strong>{isRecording ? 'Recording in progress' : 'Ready to record'}</strong>
+                <strong>{isRecording ? 'Recording in progress' : hasRecordingSession ? 'Recording stopped' : 'Ready to record'}</strong>
               </div>
-              <button
-                type="button"
-                className="data-toggle"
-                onClick={() => setShowStructuredData((visible) => !visible)}
-                disabled={recordedActions.length === 0}
-              >
-                {showStructuredData ? 'Hide JSON' : 'View JSON'}
-              </button>
+              {!showStructuredData && recordedActions.length > 0 ? (
+                <button type="button" className="data-toggle" onClick={() => setShowStructuredData(true)}>
+                  View JSON
+                </button>
+              ) : null}
             </div>
 
             <div className={showStructuredData && recordedActions.length > 0 ? 'recording-body with-data' : 'recording-body'}>
@@ -432,11 +677,61 @@ function App() {
                 {recordedActions.length > 0 ? (
                   <ul className="recorded-actions">
                     {recordedActions.map((action, index) => (
-                      <li key={`${action.type}-${index}`}>
+                      <li
+                        className={dragOverActionIndex === index ? 'recorded-action-drop-target' : ''}
+                        key={`${action.type}-${index}`}
+                        onDragOver={(event) => {
+                          if (isRecording || isEditingActionsJson || testRunProgress?.status === 'running') return;
+                          event.preventDefault();
+                          setDragOverActionIndex(index);
+                        }}
+                        onDragLeave={() => setDragOverActionIndex(null)}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          if (isRecording || isEditingActionsJson || testRunProgress?.status === 'running') return;
+                          const fromIndex = Number(event.dataTransfer.getData('text/plain'));
+                          if (Number.isInteger(fromIndex)) moveAction(fromIndex, index);
+                        }}
+                      >
+                        <button
+                          className="action-drag-handle"
+                          type="button"
+                          draggable={!isRecording && !isEditingActionsJson && testRunProgress?.status !== 'running'}
+                          disabled={isRecording || isEditingActionsJson || testRunProgress?.status === 'running'}
+                          aria-label={`Move step ${index + 1}; use up or down arrow keys`}
+                          title="Drag to reorder; use up or down arrow keys"
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', String(index));
+                          }}
+                          onDragEnd={() => setDragOverActionIndex(null)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'ArrowUp' && index > 0) {
+                              event.preventDefault();
+                              moveAction(index, index - 1);
+                            } else if (event.key === 'ArrowDown' && index < recordedActions.length - 1) {
+                              event.preventDefault();
+                              moveAction(index, index + 1);
+                            }
+                          }}
+                        >
+                          <GripVertical aria-hidden="true" size={16} />
+                        </button>
                         <span className="action-number" aria-label={`Action ${index + 1}`}>{index + 1}.</span>
-                        <span className="action-type">{action.type}</span>
+                        <span className={`action-type ${action.type.startsWith('assert-') ? 'assertion' : ''}`}>
+                          {action.type.startsWith('assert-') ? 'Assertion' : action.type === 'check' ? 'Check' : action.type === 'uncheck' ? 'Uncheck' : 'Action'}
+                        </span>
+                        {action.type === 'assert-url' ? <span className="action-detail">URL contains {JSON.stringify(action.value)}</span> : null}
+                        {action.type === 'assert-text' ? <span className="action-detail">Text {JSON.stringify(action.text)} is visible</span> : null}
+                        {action.type === 'assert-title' ? <span className="action-detail">Page title {JSON.stringify(action.title)}</span> : null}
+                        {action.type === 'assert-state' ? <span className="action-detail">{action.playwright ?? action.selector} is {action.state}</span> : null}
+                        {action.type === 'assert-element' ? <span className="action-detail">{action.playwright ?? action.selector} exists</span> : null}
+                        {action.type === 'navigate' ? <span className="action-detail">Navigate</span> : null}
+                        {action.type === 'click' ? <span className="action-detail">Click</span> : null}
+                        {action.type === 'fill' ? <span className="action-detail">Fill</span> : null}
+                        {action.type === 'submit' ? <span className="action-detail">Press Enter</span> : null}
                         {'url' in action && action.url ? <span className="action-detail" title={action.url}>{action.url}</span> : null}
-                        {'selector' in action && action.selector ? (
+                        {'selector' in action && action.selector && !action.type.startsWith('assert-') ? (
                           <span
                             className="action-detail"
                             title={`${action.playwright ?? action.selector}${'value' in action && typeof action.value === 'string' ? ` -> ${JSON.stringify(action.value)}` : ''}`}
@@ -448,6 +743,16 @@ function App() {
                         {'selector' in action && !action.selector && 'value' in action && typeof action.value === 'string' ? (
                           <span className="action-detail" title={JSON.stringify(action.value)}>{JSON.stringify(action.value)}</span>
                         ) : null}
+                        <button
+                          className="action-delete-button"
+                          type="button"
+                          aria-label={`Delete step ${index + 1}`}
+                          title="Delete step"
+                          disabled={isRecording || isEditingActionsJson || testRunProgress?.status === 'running'}
+                          onClick={() => deleteAction(index)}
+                        >
+                          <Trash2 aria-hidden="true" size={15} />
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -458,22 +763,109 @@ function App() {
 
               {showStructuredData && recordedActions.length > 0 ? (
                 <div className="structured-data-panel">
-                  <strong className="recording-column-title">Action JSON</strong>
-                  <pre className="structured-data" aria-label="Action JSON data">
-                    {JSON.stringify(recordedActions, null, 2)}
-                  </pre>
+                  <div className="action-json-header">
+                    <strong className="recording-column-title">Action JSON</strong>
+                    <div className="action-json-controls">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isEditingActionsJson) cancelActionsJsonEdit();
+                          setShowStructuredData(false);
+                        }}
+                      >
+                        Hide JSON
+                      </button>
+                      {isEditingActionsJson ? (
+                        <>
+                          <button type="button" onClick={cancelActionsJsonEdit}>Cancel</button>
+                          <button type="button" onClick={applyActionsJsonEdit}>Apply JSON</button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={editActionsJson} disabled={isRecording || testRunProgress?.status === 'running'}>
+                          Edit JSON
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {isEditingActionsJson ? (
+                    <textarea
+                      className="structured-data structured-data-editor"
+                      aria-label="Edit action JSON"
+                      spellCheck={false}
+                      value={actionJsonDraft}
+                      onChange={(event) => setActionJsonDraft(event.target.value)}
+                    />
+                  ) : (
+                    <pre className="structured-data" aria-label="Action JSON data">
+                      {JSON.stringify(recordedActions, null, 2)}
+                    </pre>
+                  )}
+                  {actionJsonError ? <p className="action-json-error" role="alert">{actionJsonError}</p> : null}
                 </div>
               ) : null}
             </div>
             <div className="structured-data-actions">
-              {!testRunProgress || testRunProgress.status !== 'running' ? (
-                <button type="button" onClick={() => void runTest()} disabled={isBusy || isRecording || recordedActions.length === 0}>Run Test</button>
-              ) : (
-                <button type="button" onClick={() => void stopTest()}>Stop Test</button>
-              )}
-              <button type="button" onClick={() => void exportPlaywrightTest()} disabled={isBusy || recordedActions.length === 0}>Export Playwright</button>
-              <button type="button" onClick={() => void saveRecording()} disabled={isBusy || recordedActions.length === 0}>Save JSON</button>
+              <div className="structured-data-action-group">
+                {!testRunProgress || testRunProgress.status !== 'running' ? (
+                  <button className="flow-action-button run" type="button" onClick={() => void runTest()} disabled={isBusy || isRecording || isEditingActionsJson || recordedActions.length === 0}>
+                    <Play aria-hidden="true" size={15} fill="currentColor" />Run Test
+                  </button>
+                ) : (
+                  <button className="flow-action-button stop" type="button" onClick={() => void stopTest()}>
+                    <X aria-hidden="true" size={15} />Stop Test
+                  </button>
+                )}
+                <button className="flow-action-button assertion" type="button" onClick={() => setShowAssertionForm((visible) => !visible)} disabled={isBusy || isEditingActionsJson || testRunProgress?.status === 'running'}>
+                  {showAssertionForm ? <X aria-hidden="true" size={16} /> : <Plus aria-hidden="true" size={16} />}
+                  {showAssertionForm ? 'Cancel Assertion' : 'Add Assertion'}
+                </button>
+              </div>
+              <div className="structured-data-action-group">
+                <button className="flow-action-button utility" type="button" onClick={() => void exportPlaywrightTest()} disabled={isBusy || isEditingActionsJson || recordedActions.length === 0}>
+                  <Code2 aria-hidden="true" size={16} />Export Playwright
+                </button>
+                <button className="flow-action-button utility" type="button" onClick={() => void saveRecording()} disabled={isBusy || isEditingActionsJson || recordedActions.length === 0}>
+                  <Save aria-hidden="true" size={16} />Save JSON
+                </button>
+              </div>
             </div>
+            {showAssertionForm ? (
+              <form className="assertion-form" onSubmit={(event) => void addAssertion(event)}>
+                <label>
+                  Assertion
+                  <select value={assertionType} onChange={(event) => setAssertionType(event.target.value as typeof assertionType)}>
+                    <option value="assert-url">URL contains</option>
+                    <option value="assert-text">Text is visible</option>
+                    <option value="assert-element">Element Exists</option>
+                    <option value="assert-title">Page title</option>
+                    <option value="assert-state">Element State</option>
+                  </select>
+                </label>
+                <label>
+                  {assertionType === 'assert-url' ? 'Value' : assertionType === 'assert-text' ? 'Text' : assertionType === 'assert-title' ? 'Expected title' : 'Locator'}
+                  <input
+                    autoFocus
+                    value={assertionValue}
+                    onChange={(event) => setAssertionValue(event.target.value)}
+                    placeholder={assertionType === 'assert-url' ? '/dashboard' : assertionType === 'assert-text' ? 'Welcome' : assertionType === 'assert-title' ? 'Dashboard' : '#logout or getByText("Log in", { exact: true })'}
+                  />
+                </label>
+                {assertionType === 'assert-state' ? (
+                  <label>
+                    State
+                    <select value={assertionState} onChange={(event) => setAssertionState(event.target.value as typeof assertionState)}>
+                      <option value="enabled">Enabled</option>
+                      <option value="disabled">Disabled</option>
+                      <option value="checked">Checked</option>
+                      <option value="visible">Visible</option>
+                    </select>
+                  </label>
+                ) : null}
+                <button className="flow-action-button assertion" type="submit">
+                  <Plus aria-hidden="true" size={16} />Add to test flow
+                </button>
+              </form>
+            ) : null}
             {testRunProgress ? (
               <div className={`test-run-status ${testRunProgress.status}`} aria-live="polite">
                 <strong>
@@ -512,9 +904,13 @@ function App() {
             </div>
             <div className="structured-data-actions">
               {!isSpecTestRunning ? (
-                <button type="button" onClick={() => void runSpecTest()} disabled={!loadedSpecFile || isBusy || isRecording || testRunProgress?.status === 'running'}>Run Test</button>
+                <button className="flow-action-button run" type="button" onClick={() => void runSpecTest()} disabled={!loadedSpecFile || isBusy || isRecording || testRunProgress?.status === 'running'}>
+                  <Play aria-hidden="true" size={15} fill="currentColor" />Run Test
+                </button>
               ) : (
-                <button type="button" onClick={() => void stopSpecTest()}>Stop Test</button>
+                <button className="flow-action-button stop" type="button" onClick={() => void stopSpecTest()}>
+                  <X aria-hidden="true" size={15} />Stop Test
+                </button>
               )}
             </div>
             {specTestProgress ? (
@@ -575,8 +971,8 @@ function App() {
               <input value={value} onChange={(event) => setValue(event.target.value)} placeholder="Value for fill" />
             </label>
             <div className="interaction-actions">
-              <button type="submit" disabled={isBusy}><MousePointerClick aria-hidden="true" size={16} />Click selector</button>
-              <button type="button" disabled={isBusy} onClick={() => void run(() => {
+              <button className="flow-action-button utility" type="submit" disabled={isBusy}><MousePointerClick aria-hidden="true" size={16} />Click selector</button>
+              <button className="flow-action-button utility" type="button" disabled={isBusy} onClick={() => void run(() => {
                 if (!selector.trim()) {
                   throw new Error('Enter a CSS selector before filling.');
                 }

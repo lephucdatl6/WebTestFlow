@@ -1,4 +1,5 @@
 import { RecordedAction } from '../../shared/types/recording';
+import { locatorDescriptionFor, locatorExpressionFor } from '../browser/locator-resolution';
 
 const temporaryParameterNames = new Set(['solution', 'js_challenge', 'jsc_token', 'jsc_orig_r', 'cid', 'iid', 'fbclid', 'gclid']);
 
@@ -30,20 +31,11 @@ function stableSelector(selector: string): string {
 }
 
 function locatorFor(action: Extract<RecordedAction, { selector: string }>): string {
-	return action.playwright ?? `locator(${JSON.stringify(stableSelector(action.selector))})`;
+	return locatorExpressionFor(action, stableSelector);
 }
 
 function locatorDescription(action: Extract<RecordedAction, { selector: string }>): string {
-	const locator = action.playwright ?? action.selector;
-	const roleMatch = locator.match(/^getByRole\((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'),\s*\{\s*name:\s*("(?:\\.|[^"\\])*")/);
-	if (roleMatch) {
-		return JSON.parse(roleMatch[1]) as string;
-	}
-	const semanticMatch = locator.match(/^getBy(?:Label|Placeholder)\(("(?:\\.|[^"\\])*")/);
-	if (semanticMatch) {
-		return JSON.parse(semanticMatch[1]) as string;
-	}
-	return locator;
+	return action.description ?? locatorDescriptionFor(action);
 }
 
 function step(name: string, statement: string): string[] {
@@ -87,10 +79,33 @@ export function generatePlaywrightTest(name: string, startUrl: string | undefine
 			case 'fill':
 				lines.push(...step(`Fill ${locatorDescription(action)}`, `await page.${locatorFor(action)}.fill(${JSON.stringify(action.value)});`));
 				break;
+			case 'check':
+				lines.push(...step(`Check ${locatorDescription(action)}`, `await page.${locatorFor(action)}.check();`));
+				break;
+			case 'uncheck':
+				lines.push(...step(`Uncheck ${locatorDescription(action)}`, `await page.${locatorFor(action)}.uncheck();`));
+				break;
 			case 'submit': {
 				const previousAction = actions[index - 1];
 				const inputAction = previousAction?.type === 'fill' ? previousAction : action;
 				lines.push(...step(`Press Enter on ${locatorDescription(inputAction)}`, `await page.${locatorFor(inputAction)}.press("Enter");`));
+				break;
+			}
+			case 'assert-url':
+				lines.push(...step(`Assert URL contains ${JSON.stringify(action.value)}`, `await expect(page).toHaveURL(url => url.toString().includes(${JSON.stringify(action.value)}));`));
+				break;
+			case 'assert-text':
+				lines.push(...step(`Assert ${JSON.stringify(action.text)} is visible`, `await expect(page.getByText(${JSON.stringify(action.text)})).toBeVisible();`));
+				break;
+			case 'assert-element':
+				lines.push(...step(`Assert ${locatorDescription(action)} exists`, `await expect(page.${locatorFor(action)}.first()).toBeAttached();`));
+				break;
+			case 'assert-title':
+				lines.push(...step(`Assert page title ${JSON.stringify(action.title)}`, `await expect(page).toHaveTitle(${JSON.stringify(action.title)});`));
+				break;
+			case 'assert-state': {
+				const matcher = action.state === 'visible' ? 'toBeVisible' : action.state === 'enabled' ? 'toBeEnabled' : action.state === 'disabled' ? 'toBeDisabled' : 'toBeChecked';
+				lines.push(...step(`Assert ${locatorDescription(action)} is ${action.state}`, `await expect(page.${locatorFor(action)}).${matcher}();`));
 				break;
 			}
 		}

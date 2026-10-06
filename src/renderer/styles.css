@@ -268,6 +268,15 @@ input {
   width: min(1100px, 100%);
 }
 
+.action-recording-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 10px;
+}
+
 .eyebrow {
   margin: 0 0 10px;
   color: #f2c14e;
@@ -275,6 +284,95 @@ input {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.action-recording-heading .eyebrow {
+  margin: 0;
+}
+
+.recording-workflow-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recording-workflow-controls button {
+  min-height: 34px;
+  padding: 6px 10px;
+  color: #e8edf2;
+  background: #35434c;
+  border: 1px solid #52616b;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.recording-workflow-controls button:hover:not(:disabled) {
+  background: #455660;
+}
+
+.recording-workflow-controls .recording-stop-button {
+  background: #7a2b2b;
+  border-color: #d66a6a;
+}
+
+.recording-workflow-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.recording-confirmation-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.68);
+}
+
+.recording-confirmation {
+  width: min(420px, 100%);
+  padding: 20px;
+  color: #e8edf2;
+  background: #1f2a31;
+  border: 1px solid #52616b;
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+}
+
+.recording-confirmation h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.recording-confirmation p {
+  margin: 10px 0 18px;
+  color: #c4ced5;
+  line-height: 1.5;
+}
+
+.recording-confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.recording-confirmation-actions button {
+  min-height: 34px;
+  padding: 6px 11px;
+  color: #e8edf2;
+  background: #35434c;
+  border: 1px solid #52616b;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.recording-confirmation-actions .recording-confirm-new {
+  color: #fff;
+  background: #7a2b2b;
+  border-color: #d66a6a;
 }
 
 h1 {
@@ -376,16 +474,60 @@ h1 {
   overflow: auto;
   min-width: 0;
   margin: 0;
-  padding-left: 18px;
+  padding: 0;
   color: #dfe7ec;
+  list-style: none;
 }
 
 .recorded-actions li {
   display: flex;
+  align-items: center;
   flex-wrap: nowrap;
   min-width: 0;
   gap: 8px;
   margin: 8px 0;
+  border-radius: 3px;
+}
+
+.recorded-actions li.recorded-action-drop-target {
+  box-shadow: inset 0 2px #7dd3c7;
+}
+
+.action-drag-handle,
+.action-delete-button {
+  display: inline-flex;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #9eabb4;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.action-drag-handle[draggable="true"] {
+  cursor: grab;
+}
+
+.action-drag-handle:hover:not(:disabled),
+.action-delete-button:hover:not(:disabled) {
+  color: #e8edf2;
+  background: #35434c;
+  border-color: #52616b;
+}
+
+.action-drag-handle:active {
+  cursor: grabbing;
+}
+
+.action-drag-handle:disabled,
+.action-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .recorded-actions .action-detail {
@@ -411,12 +553,82 @@ h1 {
   text-transform: uppercase;
 }
 
+.action-type.assertion {
+  color: #7dd3c7;
+}
+
+.assertion-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 0;
+  border-top: 1px solid #3a464f;
+}
+
+.assertion-form label {
+  display: grid;
+  gap: 5px;
+  min-width: min(220px, 100%);
+  color: #c4ced5;
+  font-size: 12px;
+}
+
+.assertion-form input,
+.assertion-form select {
+  min-height: 34px;
+  padding: 6px 9px;
+  color: #e8edf2;
+  background: #12181c;
+  border: 1px solid #52616b;
+  border-radius: 4px;
+}
+
 .empty-recording {
   margin: 0;
   color: #9eabb4;
 }
 
+.action-json-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.action-json-header .recording-column-title {
+  margin: 0;
+}
+
+.action-json-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.action-json-controls button {
+  padding: 5px 9px;
+  color: #dfe7ec;
+  background: transparent;
+  border: 1px solid #52616b;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.action-json-controls button:hover:not(:disabled) {
+  background: #35434c;
+}
+
+.action-json-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .structured-data {
+  width: 100%;
   height: 520px;
   max-height: 520px;
   margin: 0;
@@ -431,13 +643,87 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.structured-data-editor {
+  display: block;
+  resize: vertical;
+}
+
+.action-json-error {
+  margin: 8px 0 0;
+  color: #f59b9b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .structured-data-actions {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: 6px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid #3a464f;
+}
+
+.structured-data-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flow-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  color: #e8edf2;
+  border: 1px solid #52616b;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.flow-action-button.run {
+  color: #f2fffa;
+  background: #216b59;
+  border-color: #4d9a84;
+}
+
+.flow-action-button.assertion {
+  color: #a8e1d5;
+  background: #203b3a;
+  border-color: #4d9589;
+}
+
+.flow-action-button.utility {
+  color: #dfe7ec;
+  background: #29343a;
+}
+
+.flow-action-button.stop {
+  color: #fff;
+  background: #7a2b2b;
+  border-color: #d66a6a;
+}
+
+.flow-action-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.12);
+}
+
+.flow-action-button:focus-visible {
+  outline: 2px solid #f2c14e;
+  outline-offset: 2px;
+}
+
+.flow-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .test-run-status {

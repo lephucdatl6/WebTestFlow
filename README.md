@@ -85,11 +85,15 @@ Record meaningful browser actions while interacting with a website. The current 
 - Clicks
 - Text input
 - Enter/submit actions
+- Checkbox check and uncheck
 - Live action updates
 - Consecutive fill merging for the same field
 - Duplicate click prevention
 - Browser disconnect handling
 - Structured JSON view of recorded actions
+- Reorder recorded steps with drag and drop
+- Delete individual recorded steps
+- Edit the action JSON inline with validation
 
 The recorder stores both a **CSS selector** and a **semantic Playwright locator** when one can be identified. Semantic locator generation can use labels, placeholders, ARIA labels, and accessible roles/names when the locator is unique.
 
@@ -111,6 +115,16 @@ The underlying action data contains both selector formats:
 ]
 ```
 
+Checkbox changes are recorded as state actions instead of clicks or text fills:
+
+```json
+{
+     "type": "check",
+     "selector": "[data-testid=\"login-remember\"]",
+     "playwright": "getByRole(\"checkbox\", { name: \"Remember me\", exact: true })"
+}
+```
+
 Selector discovery prioritizes stable attributes and semantic information such as `id`, `name`, `placeholder`, `aria-label`, `href`, `alt`, and accessible text before falling back to less specific selectors. Custom elements are also inspected for nested interactive elements.
 
 Recorded actions remain in memory during the active recording session. They can be reviewed in the action list or structured JSON view, then saved as a versioned JSON recording through the native file dialog. Long URLs and selectors are shortened in the action list but remain complete in JSON. The recorder focuses on **semantic browser interactions rather than mouse coordinates**:
@@ -124,6 +138,10 @@ instead of:
 ```text
 Click → X: 524, Y: 318
 ```
+
+After stopping, users can continue the same recording and append actions, or start a new recording. Starting a new recording prompts before discarding unsaved changes. The action list can be reordered and individual steps can be deleted; these edits affect the existing flow used by replay, JSON save, and export.
+
+The **Edit JSON** control opens the existing `actions` array for inline editing. The edited value must be a JSON array of supported WebTestFlow actions and assertions before it can be applied.
 
 Same-tab navigation caused directly by a link click is omitted from the action list. Manual URL navigation and new-tab navigation remain recorded.
 
@@ -144,17 +162,21 @@ Example:
 Result: PASS
 ```
 
-If an action fails, WebTestFlow will provide information about the failed step and can capture a screenshot of the failure.
+If an action fails, WebTestFlow reports the failed step and its error details.
 
 ### Test Assertions
 
-Future tests are planned to support basic assertions such as:
+Test flows support manually added assertions such as:
 
 * Verify text is visible
 * Verify an element exists
 * Verify URL contains a specific value
 * Verify page title
-* Verify an element is enabled
+* Verify an element is enabled, disabled, checked, or visible
+
+Assertions are added explicitly with **Add Assertion** and are never recorded automatically from browser interactions. They are saved in the same versioned JSON `actions` array, replayed as individual test steps, and included in Playwright exports.
+
+Element existence and element state assertions use one **Locator** field. It accepts CSS selectors or supported Playwright locator expressions, including `getByRole(...)`, `getByText(...)`, `getByLabel(...)`, `getByPlaceholder(...)`, and `locator(...)`. The same locator resolution is used for replay and Playwright export. Element state assertions support visible, enabled, disabled, and checked.
 
 Example:
 
@@ -227,7 +249,7 @@ Recordings can be saved and loaded as versioned JSON files through native Electr
 
 ### Playwright Export
 
-Recorded tests can be exported as editable Playwright TypeScript test files. Actions with semantic locators use those locators, other actions fall back to CSS locators. Each exported navigation, click, fill, and Enter action is wrapped in a named `test.step()` so the exported test can report progress while it runs.
+Recorded tests can be exported as editable Playwright TypeScript test files. Actions with semantic locators use those locators, other actions fall back to CSS locators. Each exported navigation, click, fill, checkbox check/uncheck, Enter action, and assertion is wrapped in a named `test.step()` so the exported test can report progress while it runs.
 
 Exported `.spec.ts` files can be edited and loaded back into WebTestFlow for direct Playwright Test execution. This provides a separate workflow for users who want to edit generated Playwright code manually before running it.
 
@@ -378,6 +400,7 @@ WebTestFlow/
 * [x] Record text input
 * [x] Record navigation
 * [x] Record Enter/submit actions
+* [x] Record checkbox check and uncheck
 * [x] Convert browser events into structured test actions
 * [x] Update the action list while recording
 * [x] Merge consecutive fills for the same selector
@@ -390,6 +413,8 @@ WebTestFlow/
 * [x] Number and align recorded action steps
 * [x] Detect browser window disconnects
 * [x] Remove same-tab navigation events that duplicate a link-click navigation
+* [x] Continue a stopped recording or start a new recording
+* [x] Reorder and delete test-flow steps
 
 ### Phase 4 - Recording Export and Storage
 
@@ -397,6 +422,7 @@ WebTestFlow/
 * [x] Export generated tests
 * [x] Save recordings to JSON files through a native file dialog
 * [x] Load saved recordings when needed
+* [x] Edit the action JSON inline
 * [x] Validate loaded recording documents
 * [x] Load edited Playwright `.spec.ts` files
 * [x] Run loaded Playwright `.spec.ts` files
@@ -429,20 +455,18 @@ WebTestFlow/
 
 ### Phase 7 - Assertions
 
-* [ ] URL assertions
-* [ ] Text visibility
-* [ ] Element existence
-* [ ] Page title
-* [ ] Element state
-* [ ] Validate smoke-test workflows
+* [x] URL assertions
+* [x] Text visibility
+* [x] Element existence
+* [x] Page title
+* [x] Element state
+* [x] Validate smoke-test workflows
 
-### Phase 8 - Reporting
+### Phase 8 - Test Results
 
-* [ ] Failure screenshots
 * [x] Execution progress and results
 * [x] Test duration
 * [x] Pass/fail summary
-* [ ] Security report
 
 ### Phase 9 - Advanced Test Execution
 

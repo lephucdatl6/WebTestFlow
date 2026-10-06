@@ -1,4 +1,4 @@
-import type { RecordingDocument } from '../shared/types/recording';
+import type { RecordedAssertion, RecordingDocument } from '../shared/types/recording';
 import type { TestRunProgress, TestRunResult } from '../shared/types/test-run';
 import type { SpecFileSelection, SpecTestProgress, SpecTestResult } from '../shared/types/spec-test';
 import type { SecurityAnalysisResult } from '../shared/types/security';
@@ -10,9 +10,10 @@ declare global {
     webTestFlow: {
       launch: () => Promise<void>;
       openUrl: (url: string) => Promise<string>;
-      startRecording: () => Promise<string | undefined>;
+      startRecording: (existingActions?: RecordingDocument['actions']) => Promise<string | undefined>;
       stopRecording: () => Promise<RecordingDocument['actions']>;
       getRecordingActions: () => Promise<RecordingDocument['actions']>;
+      addRecordingAssertion: (assertion: RecordedAssertion) => Promise<void>;
       isBrowserOpen: () => Promise<boolean>;
       close: () => Promise<void>;
       goBack: () => Promise<void>;

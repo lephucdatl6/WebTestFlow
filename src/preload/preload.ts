@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { RecordingDocument } from '../shared/types/recording';
+import type { RecordedAssertion, RecordingDocument } from '../shared/types/recording';
 import type { TestRunProgress, TestRunResult } from '../shared/types/test-run';
 import type { SpecFileSelection, SpecTestProgress, SpecTestResult } from '../shared/types/spec-test';
 import type { SecurityAnalysisResult } from '../shared/types/security';
@@ -7,9 +7,10 @@ import type { SecurityAnalysisResult } from '../shared/types/security';
 contextBridge.exposeInMainWorld('webTestFlow', {
 	launch: () => ipcRenderer.invoke('browser:launch'),
 	openUrl: (url: string) => ipcRenderer.invoke('browser:open-url', url) as Promise<string>,
-	startRecording: () => ipcRenderer.invoke('browser:start-recording') as Promise<string | undefined>,
-	stopRecording: () => ipcRenderer.invoke('browser:stop-recording') as Promise<Array<{ type: string; selector?: string; playwright?: string; value?: string; url?: string; description?: string }>>,
-	getRecordingActions: () => ipcRenderer.invoke('browser:get-recording-actions') as Promise<Array<{ type: string; selector?: string; playwright?: string; value?: string; url?: string; description?: string }>>,
+	startRecording: (existingActions?: RecordingDocument['actions']) => ipcRenderer.invoke('browser:start-recording', existingActions) as Promise<string | undefined>,
+	stopRecording: () => ipcRenderer.invoke('browser:stop-recording') as Promise<RecordingDocument['actions']>,
+	getRecordingActions: () => ipcRenderer.invoke('browser:get-recording-actions') as Promise<RecordingDocument['actions']>,
+	addRecordingAssertion: (assertion: RecordedAssertion) => ipcRenderer.invoke('browser:add-recording-assertion', assertion) as Promise<void>,
 	isBrowserOpen: () => ipcRenderer.invoke('browser:is-open') as Promise<boolean>,
 	close: () => ipcRenderer.invoke('browser:close'),
 	goBack: () => ipcRenderer.invoke('browser:go-back'),

@@ -1,11 +1,12 @@
 import { chromium, Browser, Page } from 'playwright';
-import { RecordedAction } from '../../shared/types/recording';
+import { RecordedAction, RecordedAssertion } from '../../shared/types/recording';
 
 export class BrowserManager {
 	private browser: Browser | null = null;
 	private page: Page | null = null;
 	private originalUrl: string | undefined;
 	private recordingEnabled = false;
+	private recordingSessionId = 0;
 	private recordedActions: RecordedAction[] = [];
 	private sameTabNavigationDeadline = 0;
 
@@ -19,7 +20,7 @@ export class BrowserManager {
 					this.page = null;
 					this.originalUrl = undefined;
 					this.recordingEnabled = false;
-					this.recordedActions = [];
+					this.recordingSessionId += 1;
 				}
 			});
 		}
@@ -52,10 +53,11 @@ export class BrowserManager {
 		return this.page!.url();
 	}
 
-	public async startRecording(): Promise<string | undefined> {
+	public async startRecording(existingActions?: RecordedAction[]): Promise<string | undefined> {
 		await this.launch();
+		this.recordingSessionId += 1;
 		this.recordingEnabled = true;
-		this.recordedActions = [];
+		this.recordedActions = existingActions ? [...existingActions] : [];
 		this.sameTabNavigationDeadline = 0;
 
 		if (this.page) {
@@ -67,14 +69,20 @@ export class BrowserManager {
 
 	public async stopRecording(): Promise<RecordedAction[]> {
 		this.recordingEnabled = false;
+		this.recordingSessionId += 1;
 		this.sameTabNavigationDeadline = 0;
-		const actions = [...this.recordedActions];
-		this.recordedActions = [];
-		return actions;
+		return [...this.recordedActions];
 	}
-
 	public getRecordedActions(): RecordedAction[] {
 		return [...this.recordedActions];
+	}
+
+	public addRecordingAssertion(assertion: RecordedAssertion): void {
+		if (!this.recordingEnabled) {
+			throw new Error('Assertions can only be added while recording.');
+		}
+
+		this.recordedActions.push(assertion);
 	}
 
 	public isBrowserOpen(): boolean {
@@ -108,6 +116,7 @@ export class BrowserManager {
 
 	public async close(): Promise<void> {
 		this.recordingEnabled = false;
+		this.recordingSessionId += 1;
 		this.recordedActions = [];
 		this.sameTabNavigationDeadline = 0;
 		this.originalUrl = undefined;
@@ -176,6 +185,7 @@ export class BrowserManager {
 			if (frame !== page.mainFrame()) {
 				return;
 			}
+			const navigationSessionId = this.recordingEnabled ? this.recordingSessionId : undefined;
 
 			// Allow the click's exposed-function callback to arrive before classifying this navigation.
 			await new Promise<void>((resolve) => setTimeout(resolve, 50));
@@ -183,7 +193,7 @@ export class BrowserManager {
 			const suppressNavigation = this.sameTabNavigationDeadline > Date.now();
 			this.sameTabNavigationDeadline = 0;
 
-			if (this.recordingEnabled && !suppressNavigation) {
+			if (navigationSessionId === this.recordingSessionId && this.recordingEnabled && !suppressNavigation) {
 				this.recordedActions.push({
 					type: 'navigate',
 					url: page.url()
@@ -195,7 +205,7 @@ export class BrowserManager {
 					await this.attachRecorderHandlers(this.page);
 				} catch (error) {
 					const message = error instanceof Error ? error.message : String(error);
-					if (!/execution context was destroyed|frame was detached|cannot find context/i.test(message)) {
+					if (!/execution context was destroyed|frame was detached|cannot find context|target page, context or browser has been closed/i.test(message)) {
 						console.error('Failed to reattach browser recorder:', error);
 					}
 				}
@@ -217,6 +227,7 @@ export class BrowserManager {
 			globalWindow.__webTestFlowRecorderBound = true;
 
 			const lastInputValues = new WeakMap<Element, string>();
+			const lastCheckboxStates = new WeakMap<HTMLInputElement, boolean>();
 			const pendingInputTimers = new WeakMap<Element, number>();
 			const editedInputTargets = new WeakSet<Element>();
 			const lastClickTargets = new WeakSet<Element>();
@@ -438,7 +449,7 @@ export class BrowserManager {
 				const placeholder = element.getAttribute('placeholder');
 				let ambiguousSemanticLocator = false;
 
-				if (isFillableElement(element)) {
+				if (isFillableElement(element) || isCheckboxElement(element)) {
 					const labels = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
 						? Array.from(element.labels ?? [])
 						: [];
@@ -453,7 +464,7 @@ export class BrowserManager {
 					}
 				}
 
-				if (isFillableElement(element) && placeholder) {
+				if ((isFillableElement(element) || isCheckboxElement(element)) && placeholder) {
 					const matchingPlaceholders = Array.from(document.querySelectorAll('[placeholder]'))
 						.filter((candidate) => candidate.getAttribute('placeholder') === placeholder);
 					if (matchingPlaceholders.length === 1 && matchingPlaceholders[0] === element) {
@@ -463,7 +474,7 @@ export class BrowserManager {
 				}
 
 				const ariaLabel = element.getAttribute('aria-label');
-				if (isFillableElement(element) && ariaLabel) {
+				if ((isFillableElement(element) || isCheckboxElement(element)) && ariaLabel) {
 					const normalizedAriaLabel = ariaLabel.replace(/\s+/g, ' ').trim();
 					if (hasUniqueLabelName(element, normalizedAriaLabel)) {
 						return `getByLabel(${JSON.stringify(normalizedAriaLabel)}, { exact: true })`;
@@ -491,7 +502,11 @@ export class BrowserManager {
 			}
 
 			function isFillableElement(element: Element): boolean {
-				return element.matches('input, textarea, select, [contenteditable="true"]');
+				return element.matches('input, textarea, select, [contenteditable="true"]') && !isCheckboxElement(element);
+			}
+
+			function isCheckboxElement(element: Element): element is HTMLInputElement {
+				return element instanceof HTMLInputElement && element.type === 'checkbox';
 			}
 
 			function fillableElementFromEvent(event: Event): Element | undefined {
@@ -499,6 +514,43 @@ export class BrowserManager {
 					(pathItem): pathItem is Element => pathItem instanceof Element && isFillableElement(pathItem)
 				);
 				return composedTarget ?? (event.target instanceof Element && isFillableElement(event.target) ? event.target : undefined);
+			}
+
+			function checkboxElementFromEvent(event: Event): HTMLInputElement | undefined {
+				const composedTarget = event.composedPath().find(
+					(pathItem): pathItem is HTMLInputElement => pathItem instanceof HTMLInputElement && pathItem.type === 'checkbox'
+				);
+				if (composedTarget) {
+					return composedTarget;
+				}
+
+				if (!(event.target instanceof Element)) {
+					return undefined;
+				}
+
+				const targetCheckbox = event.target.closest('input[type="checkbox"]');
+				if (targetCheckbox instanceof HTMLInputElement && isCheckboxElement(targetCheckbox)) {
+					return targetCheckbox;
+				}
+
+				const label = event.target.closest('label');
+				return label instanceof HTMLLabelElement && label.control instanceof HTMLInputElement && isCheckboxElement(label.control)
+					? label.control
+					: undefined;
+			}
+
+			function captureCheckboxChange(element: HTMLInputElement): void {
+				if (!globalWindow.webTestFlowRecorderCapture || lastCheckboxStates.get(element) === element.checked) {
+					return;
+				}
+
+				lastCheckboxStates.set(element, element.checked);
+				globalWindow.webTestFlowRecorderCapture({
+					type: element.checked ? 'check' : 'uncheck',
+					selector: selectorFromElement(element),
+					playwright: playwrightLocatorFromElement(element),
+					description: elementDescription(element)
+				});
 			}
 
 			function captureFill(element: Element): void {
@@ -544,6 +596,9 @@ export class BrowserManager {
 				if (!(target instanceof Element) || !globalWindow.webTestFlowRecorderCapture) {
 					return;
 				}
+				if (checkboxElementFromEvent(event)) {
+					return;
+				}
 
 				if (lastClickTargets.has(target)) {
 					return;
@@ -578,6 +633,17 @@ export class BrowserManager {
 			}, true);
 
 			document.addEventListener('change', (event: Event) => {
+			const checkbox = checkboxElementFromEvent(event);
+			if (checkbox) {
+				const pendingTimer = pendingInputTimers.get(checkbox);
+				if (pendingTimer !== undefined) {
+					window.clearTimeout(pendingTimer);
+					pendingInputTimers.delete(checkbox);
+				}
+				captureCheckboxChange(checkbox);
+				return;
+			}
+
 			const target = fillableElementFromEvent(event);
 			if (target) {
 				editedInputTargets.add(target);
