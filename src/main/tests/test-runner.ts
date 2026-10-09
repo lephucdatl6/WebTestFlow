@@ -1,6 +1,9 @@
 import { Browser, chromium, Locator, Page } from 'playwright';
 import { expect } from '@playwright/test';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import { parseLocatorExpression, resolveLocator } from '../browser/locator-resolution';
+import { cleanupScreenshots } from '../recording/screenshot-cleanup';
 import { RecordedAction } from '../../shared/types/recording';
 import { SpecTestStep } from '../../shared/types/spec-test';
 import { TestRunProgress, TestRunResult } from '../../shared/types/test-run';
@@ -15,6 +18,23 @@ async function uniqueLocatorFor(page: Page, action: Extract<RecordedAction, { se
 		const cssLocator = page.locator(action.selector);
 		if (await cssLocator.count() === 1) {
 			return cssLocator;
+		}
+	}
+
+	// Ambiguous locators (e.g. legacy recordings using a shared radio-group name)
+	// can be narrowed by the recorded value when it identifies a single element.
+	const narrowingValue = 'value' in action ? action.value : undefined;
+	if (narrowingValue) {
+		const byValue = resolvedLocator.and(page.locator(`[value=${JSON.stringify(narrowingValue)}]`));
+		if (await byValue.count() === 1) {
+			return byValue;
+		}
+	}
+
+	if (action.type === 'check') {
+		const checkedRadio = resolvedLocator.and(page.locator('input[type="radio"]:checked'));
+		if (await checkedRadio.count() === 1) {
+			return checkedRadio;
 		}
 	}
 
@@ -63,7 +83,7 @@ function actionLabel(action: RecordedAction): string {
 	}
 }
 
-function actionStep(action: RecordedAction): SpecTestStep {
+function actionStep(action: RecordedAction, actionIndex?: number): SpecTestStep {
 	const title = actionLabel(action);
 	const detail = action.type === 'fill'
 		? `Value: ${action.value.slice(0, 80)}${action.value.length > 80 ? '…' : ''}`
@@ -81,7 +101,8 @@ function actionStep(action: RecordedAction): SpecTestStep {
 	return {
 		title,
 		status: 'running',
-		detail
+		detail,
+		actionIndex
 	};
 }
 
@@ -141,6 +162,39 @@ export class TestRunner {
 	private browser: Browser | null = null;
 	private active = false;
 	private stopRequested = false;
+
+	constructor(private readonly screenshotsDir?: string) {}
+
+	private async captureFailureScreenshot(page: Page | undefined, action: RecordedAction, actionIndex: number): Promise<string | undefined> {
+		if (!page || !this.screenshotsDir) {
+			return undefined;
+		}
+		try {
+			// Outline the failing element so the screenshot shows where the error is.
+			if ('selector' in action) {
+				try {
+					const locator = await uniqueLocatorFor(page, action);
+					const count = await locator.count();
+					const target = count === 1 ? locator : locator.first();
+					await target.scrollIntoViewIfNeeded().catch(() => undefined);
+					await target.evaluate((element) => {
+						const html = element as HTMLElement;
+						html.style.outline = '3px solid #ff5722';
+						html.style.outlineOffset = '2px';
+					});
+				} catch {
+					// The element couldn't be located for outlining; screenshot the page as-is.
+				}
+			}
+
+			await fs.mkdir(this.screenshotsDir, { recursive: true });
+			const filePath = path.join(this.screenshotsDir, `failed-step-${Date.now()}-${actionIndex + 1}.png`);
+			await page.screenshot({ path: filePath });
+			return filePath;
+		} catch {
+			return undefined;
+		}
+	}
 
 	public async run(
 		startUrl: string | undefined,
@@ -210,7 +264,7 @@ export class TestRunner {
 					nextAction?.type === 'fill' &&
 					(action.selector === nextAction.selector || action.playwright === nextAction.playwright)
 				) {
-					steps.push({ ...actionStep(action), status: 'skipped' });
+					steps.push({ ...actionStep(action, index), status: 'skipped' });
 					currentStep += 1;
 					emit('running');
 					continue;
@@ -218,7 +272,7 @@ export class TestRunner {
 
 				currentAction = actionLabel(action);
 				const stepStarted = Date.now();
-				const stepIndex = steps.push(actionStep(action)) - 1;
+				const stepIndex = steps.push(actionStep(action, index)) - 1;
 				emit('running');
 
 				try {
@@ -232,8 +286,21 @@ export class TestRunner {
 						case 'fill':
 							{
 								const locator = await uniqueLocatorFor(page, action);
-								const isCheckbox = await locator.evaluate((element) => element instanceof HTMLInputElement && element.type === 'checkbox');
-								if (isCheckbox) {
+								const controlKind = await locator.evaluate((element) =>
+									element instanceof HTMLSelectElement
+										? 'select'
+										: element instanceof HTMLInputElement && element.type === 'checkbox'
+											? 'checkbox'
+											: element instanceof HTMLInputElement && element.type === 'radio'
+												? 'radio'
+												: 'text');
+								if (controlKind === 'select') {
+									// selectOption matches options by value or label.
+									await locator.selectOption(action.value);
+								} else if (controlKind === 'radio') {
+									// Legacy recordings captured radios as a fill; apply it as a check instead.
+									await locator.check();
+								} else if (controlKind === 'checkbox') {
 									const value = action.value.toLowerCase();
 									if (['on', 'true', '1', 'checked'].includes(value)) {
 										await locator.check();
@@ -270,12 +337,14 @@ export class TestRunner {
 					steps[stepIndex] = { ...steps[stepIndex], status: 'passed', durationMs: Date.now() - stepStarted };
 				} catch (error) {
 					const message = error instanceof Error ? error.message : 'The action failed.';
+					const screenshotPath = await this.captureFailureScreenshot(page, action, index);
 					steps[stepIndex] = {
 						...steps[stepIndex],
 						status: 'failed',
 						durationMs: Date.now() - stepStarted,
 						detail: action.type.startsWith('assert-') ? `${steps[stepIndex].detail}\n${message}` : steps[stepIndex].detail,
-						error: message
+						error: message,
+						screenshotPath
 					};
 					throw error;
 				}
@@ -304,6 +373,7 @@ export class TestRunner {
 			if (browser?.isConnected()) {
 				await browser.close().catch(() => undefined);
 			}
+			await cleanupScreenshots(this.screenshotsDir);
 		}
 	}
 

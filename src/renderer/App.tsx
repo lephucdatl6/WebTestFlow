@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, Code2, GripVertical, MousePointerClick, Play, Plus, RotateCw, Save, Trash2, Type, X } from 'lucide-react';
 import { recordingNameFromUrl, timestampedFilename } from '../shared/types/recording';
 import type { RecordedAction, RecordedAssertion, RecordingDocument } from '../shared/types/recording';
@@ -18,16 +18,23 @@ function securityHeaderStatusLabel(status: SecurityHeaderStatus, responseContext
       : 'Missing in received response';
 }
 
-function SpecStepList({ steps, prefix = '' }: { steps: SpecTestStep[]; prefix?: string }) {
+function SpecStepList({ steps, prefix = '', onActionJump, onDebugStep, onOpenScreenshot }: { steps: SpecTestStep[]; prefix?: string; onActionJump?: (actionIndex: number) => void; onDebugStep?: (actionIndex: number) => void; onOpenScreenshot?: (screenshotPath: string) => void }) {
   return (
     <ol className="spec-step-list">
       {steps.map((step, index) => {
         const stepNumber = prefix ? `${prefix}.${index + 1}` : `${index + 1}`;
         const firstErrorLine = step.error?.split('\n').find((line) => line.trim());
         const timeout = step.error?.match(/(?:Timeout|timeout)[^\n]*?(\d+)ms/);
+        const canJump = typeof step.actionIndex === 'number' && onActionJump;
+        const canDebug = typeof step.actionIndex === 'number' && onDebugStep && step.status === 'failed';
 
         return (
-          <li className={`spec-step ${step.status}`} key={`${stepNumber}-${step.title}`}>
+          <li
+            className={`spec-step ${step.status}${canJump ? ' clickable' : ''}`}
+            key={`${stepNumber}-${step.title}`}
+            onClick={canJump ? () => onActionJump(step.actionIndex as number) : undefined}
+            title={canJump ? 'Show this action in the test flow' : undefined}
+          >
             <div className="spec-step-heading">
               <span className="spec-step-mark" aria-label={step.status}>
                 {step.status === 'passed' ? '✓' : step.status === 'failed' ? '✗' : step.status === 'running' ? '…' : '–'}
@@ -40,10 +47,40 @@ function SpecStepList({ steps, prefix = '' }: { steps: SpecTestStep[]; prefix?: 
                 {firstErrorLine ? <span>Failed: {firstErrorLine}</span> : <span>Failed during this step.</span>}
                 {timeout ? <span>Timeout: {(Number(timeout[1]) / 1000).toFixed(Number(timeout[1]) % 1000 === 0 ? 0 : 1)}s</span> : null}
                 {step.file && step.line ? <span>Line {step.line}</span> : null}
+                {canDebug || step.screenshotPath ? (
+                  <div className="spec-step-actions">
+                    {canDebug ? (
+                      <button
+                        className="spec-step-debug"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDebugStep(step.actionIndex as number);
+                        }}
+                        title="Open the page in the recording browser and highlight this element"
+                      >
+                        Open page
+                      </button>
+                    ) : null}
+                    {step.screenshotPath ? (
+                      <button
+                        className="spec-step-screenshot"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenScreenshot?.(step.screenshotPath as string);
+                        }}
+                        title="Open the failure screenshot"
+                      >
+                        View screenshot
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {step.detail ? <div className="spec-step-detail">{step.detail}</div> : null}
-            {step.children?.length ? <SpecStepList steps={step.children} prefix={stepNumber} /> : null}
+            {step.children?.length ? <SpecStepList steps={step.children} prefix={stepNumber} onActionJump={onActionJump} onDebugStep={onDebugStep} onOpenScreenshot={onOpenScreenshot} /> : null}
           </li>
         );
       })}
@@ -119,9 +156,166 @@ function App() {
   const [isAnalyzingSecurity, setIsAnalyzingSecurity] = useState(false);
   const [showSecurityDetails, setShowSecurityDetails] = useState(false);
   const savedActionsSnapshot = useRef<string | null>(null);
+  const [highlightedActionIndex, setHighlightedActionIndex] = useState<number | null>(null);
+  const actionListRef = useRef<HTMLUListElement | null>(null);
+  const [actionSearchQuery, setActionSearchQuery] = useState('');
+  const actionSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const [activeJsonMatch, setActiveJsonMatch] = useState(0);
+  const jsonViewRef = useRef<HTMLDivElement | null>(null);
+  const jsonEditorRef = useRef<HTMLTextAreaElement | null>(null);
+  const jsonPanelRef = useRef<HTMLDivElement | null>(null);
+
+  const actionJsonText = JSON.stringify(recordedActions, null, 2);
+  const normalizedJsonSearch = actionSearchQuery.trim().toLowerCase();
+  const jsonMatches = useMemo(() => {
+    if (!normalizedJsonSearch) return [];
+    const lower = actionJsonText.toLowerCase();
+    const indexes: number[] = [];
+    let from = 0;
+    while (true) {
+      const found = lower.indexOf(normalizedJsonSearch, from);
+      if (found === -1) break;
+      indexes.push(found);
+      from = found + normalizedJsonSearch.length;
+    }
+    return indexes;
+  }, [actionJsonText, normalizedJsonSearch]);
+
+  // Reset the active match when the query or result set changes, and scroll to the first match.
+  useEffect(() => {
+    setActiveJsonMatch(0);
+    if (jsonMatches.length > 0) {
+      shouldScrollJsonMatch.current = true;
+    }
+  }, [normalizedJsonSearch, jsonMatches.length]);
+
+  const clampedActiveMatch = jsonMatches.length === 0 ? 0 : Math.min(activeJsonMatch, jsonMatches.length - 1);
+
+  // Set to true to make the scroll effect jump to the active match (typing or Enter navigation).
+  const shouldScrollJsonMatch = useRef(false);
+
+  function jsonSegments(text: string, matches: number[], queryLength: number, activeIndex: number) {
+    if (matches.length === 0) return [text];
+    const segments: ReactNode[] = [];
+    let cursor = 0;
+    matches.forEach((start, matchIndex) => {
+      if (start > cursor) segments.push(text.slice(cursor, start));
+      segments.push(
+        <mark key={matchIndex} data-json-match={matchIndex} className={matchIndex === activeIndex ? 'json-match active' : 'json-match'}>
+          {text.slice(start, start + queryLength)}
+        </mark>
+      );
+      cursor = start + queryLength;
+    });
+    if (cursor < text.length) segments.push(text.slice(cursor));
+    return segments;
+  }
+
+  function jumpToRecordedAction(actionIndex: number) {
+    setHighlightedActionIndex(actionIndex);
+  }
+
+  async function debugFailedStep(actionIndex: number) {
+    const action = recordedActions[actionIndex];
+    if (!action || !('selector' in action)) {
+      return;
+    }
+    setError('');
+    setIsBusy(true);
+    try {
+      await window.webTestFlow.debugAction(action, recordingStartUrl);
+      setStatus('Opened page and highlighted the failing element');
+    } catch (debugError) {
+      setError(readableError(debugError));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function openStepScreenshot(screenshotPath: string) {
+    const result = await window.webTestFlow.openScreenshot(screenshotPath);
+    if (result) {
+      setError(result);
+    }
+  }
+
+  useEffect(() => {
+    if (highlightedActionIndex === null) {
+      return;
+    }
+    const list = actionListRef.current;
+    const item = list?.children[highlightedActionIndex] as HTMLElement | undefined;
+    if (list && item) {
+      const top = item.offsetTop;
+      const bottom = top + item.offsetHeight;
+      if (top < list.scrollTop || bottom > list.scrollTop + list.clientHeight) {
+        list.scrollTop = top - list.clientHeight / 2;
+      }
+    }
+    const timeout = window.setTimeout(() => setHighlightedActionIndex(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [highlightedActionIndex]);
 
   useEffect(() => window.webTestFlow.onTestProgress(setTestRunProgress), []);
   useEffect(() => window.webTestFlow.onSpecTestProgress(setSpecTestProgress), []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setShowStructuredData(true);
+        actionSearchInputRef.current?.focus();
+        actionSearchInputRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Scroll the active JSON match into view within the JSON container only (not the whole window).
+  // Runs after every render so it fires once the new <mark> elements are in the DOM,
+  // both while typing and when navigating matches with Enter.
+  useEffect(() => {
+    if (jsonMatches.length === 0 || !shouldScrollJsonMatch.current) return;
+    shouldScrollJsonMatch.current = false;
+    const container = jsonViewRef.current;
+    const node = container?.querySelector(`mark[data-json-match="${clampedActiveMatch}"]`) as HTMLElement | undefined;
+    if (container && node) {
+      const containerRect = container.getBoundingClientRect();
+      const nodeRect = node.getBoundingClientRect();
+      container.scrollTop += nodeRect.top - containerRect.top - container.clientHeight / 2 + nodeRect.height / 2;
+    }
+  });
+
+    function handleJsonDoubleClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (isRecording || testRunProgress?.status === 'running') return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      editActionsJsonAtMatch();
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const container = jsonViewRef.current;
+    if (!container || !container.contains(range.startContainer)) {
+      editActionsJsonAtMatch();
+      return;
+    }
+
+    let offset = 0;
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let textNode = walker.nextNode();
+    let found = false;
+    while (textNode) {
+      if (textNode === range.startContainer) {
+        offset += range.startOffset;
+        found = true;
+        break;
+      }
+      offset += textNode.textContent?.length ?? 0;
+      textNode = walker.nextNode();
+    }
+    editActionsJson(found ? offset : 0);
+  }
 
   useEffect(() => {
     if (!isRecording) {
@@ -337,10 +531,27 @@ function App() {
     setStatus(saved ? 'Recording saved' : 'Save cancelled');
   }
 
-  function editActionsJson() {
-    setActionJsonDraft(JSON.stringify(recordedActions, null, 2));
+  function editActionsJson(caretIndex: number = 0) {
+    const json = JSON.stringify(recordedActions, null, 2);
+    setActionJsonDraft(json);
     setActionJsonError('');
     setIsEditingActionsJson(true);
+    // Place the caret at the requested offset so edit mode opens where the user is looking.
+    const caret = Math.max(0, Math.min(caretIndex, json.length));
+    requestAnimationFrame(() => {
+      const editor = jsonEditorRef.current;
+      if (editor) {
+        editor.focus();
+        editor.setSelectionRange(caret, caret);
+        const lineHeight = 18; // 12px font * 1.5 line-height
+        const linesBefore = json.slice(0, caret).split('\n').length - 1;
+        editor.scrollTop = Math.max(0, linesBefore * lineHeight - editor.clientHeight / 2);
+      }
+    });
+  }
+
+  function editActionsJsonAtMatch() {
+    editActionsJson(jsonMatches.length > 0 ? jsonMatches[clampedActiveMatch] : 0);
   }
 
   function cancelActionsJsonEdit() {
@@ -675,10 +886,13 @@ function App() {
               <div className="recording-column">
                 {showStructuredData && recordedActions.length > 0 ? <strong className="recording-column-title">Actions</strong> : null}
                 {recordedActions.length > 0 ? (
-                  <ul className="recorded-actions">
+                  <ul className="recorded-actions" ref={actionListRef}>
                     {recordedActions.map((action, index) => (
                       <li
-                        className={dragOverActionIndex === index ? 'recorded-action-drop-target' : ''}
+                        className={[
+                          dragOverActionIndex === index ? 'recorded-action-drop-target' : '',
+                          highlightedActionIndex === index ? 'action-flash' : ''
+                        ].filter(Boolean).join(' ') || undefined}
                         key={`${action.type}-${index}`}
                         onDragOver={(event) => {
                           if (isRecording || isEditingActionsJson || testRunProgress?.status === 'running') return;
@@ -762,9 +976,56 @@ function App() {
               </div>
 
               {showStructuredData && recordedActions.length > 0 ? (
-                <div className="structured-data-panel">
+                <div className="structured-data-panel" ref={jsonPanelRef}>
                   <div className="action-json-header">
                     <strong className="recording-column-title">Action JSON</strong>
+                    {!isEditingActionsJson ? (
+                      <div className="json-search">
+                        <input
+                          ref={actionSearchInputRef}
+                          type="search"
+                          value={actionSearchQuery}
+                          onChange={(event) => setActionSearchQuery(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              shouldScrollJsonMatch.current = true;
+                              setActiveJsonMatch((current) => (event.shiftKey ? current - 1 : current + 1 + jsonMatches.length) % Math.max(jsonMatches.length, 1));
+                            } else if (event.key === 'Escape') {
+                              setActionSearchQuery('');
+                              event.currentTarget.blur();
+                            }
+                          }}
+                          placeholder="Search"
+                          aria-label="Find in action JSON"
+                        />
+                        {normalizedJsonSearch ? (
+                          <>
+                            <span className="json-search-count">
+                              {jsonMatches.length === 0 ? 'No results' : `${clampedActiveMatch + 1} of ${jsonMatches.length}`}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label="Previous match"
+                              disabled={jsonMatches.length === 0}
+                              onClick={() => {
+                                shouldScrollJsonMatch.current = true;
+                                setActiveJsonMatch((current) => (current - 1 + jsonMatches.length) % jsonMatches.length);
+                              }}
+                            >↑</button>
+                            <button
+                              type="button"
+                              aria-label="Next match"
+                              disabled={jsonMatches.length === 0}
+                              onClick={() => {
+                                shouldScrollJsonMatch.current = true;
+                                setActiveJsonMatch((current) => (current + 1) % jsonMatches.length);
+                              }}
+                            >↓</button>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="action-json-controls">
                       <button
                         type="button"
@@ -778,17 +1039,14 @@ function App() {
                       {isEditingActionsJson ? (
                         <>
                           <button type="button" onClick={cancelActionsJsonEdit}>Cancel</button>
-                          <button type="button" onClick={applyActionsJsonEdit}>Apply JSON</button>
+                          <button type="button" onClick={applyActionsJsonEdit}>Save</button>
                         </>
-                      ) : (
-                        <button type="button" onClick={editActionsJson} disabled={isRecording || testRunProgress?.status === 'running'}>
-                          Edit JSON
-                        </button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   {isEditingActionsJson ? (
                     <textarea
+                      ref={jsonEditorRef}
                       className="structured-data structured-data-editor"
                       aria-label="Edit action JSON"
                       spellCheck={false}
@@ -796,9 +1054,15 @@ function App() {
                       onChange={(event) => setActionJsonDraft(event.target.value)}
                     />
                   ) : (
-                    <pre className="structured-data" aria-label="Action JSON data">
-                      {JSON.stringify(recordedActions, null, 2)}
-                    </pre>
+                    <div
+                      className="structured-data json-view"
+                      ref={jsonViewRef}
+                      aria-label="Action JSON data"
+                      title="Double-click to edit"
+                      onDoubleClick={handleJsonDoubleClick}
+                    >
+                      <pre>{jsonSegments(actionJsonText, jsonMatches, normalizedJsonSearch.length, clampedActiveMatch)}</pre>
+                    </div>
                   )}
                   {actionJsonError ? <p className="action-json-error" role="alert">{actionJsonError}</p> : null}
                 </div>
@@ -881,7 +1145,7 @@ function App() {
                 {testRunProgress.steps.length > 0 ? (
                   <div className="spec-steps-section">
                     <strong>Steps</strong>
-                    <SpecStepList steps={testRunProgress.steps} />
+                    <SpecStepList steps={testRunProgress.steps} onActionJump={jumpToRecordedAction} onDebugStep={debugFailedStep} onOpenScreenshot={(path) => void openStepScreenshot(path)} />
                   </div>
                 ) : null}
                 {testRunProgress.error ? (
@@ -923,7 +1187,7 @@ function App() {
                 {specTestProgress.steps.length > 0 ? (
                   <div className="spec-steps-section">
                     <strong>Steps</strong>
-                    <SpecStepList steps={specTestProgress.steps} />
+                    <SpecStepList steps={specTestProgress.steps} onOpenScreenshot={(path) => void openStepScreenshot(path)} />
                   </div>
                 ) : <p className="spec-no-steps">Starting Playwright test…</p>}
               </div>
@@ -936,7 +1200,7 @@ function App() {
                 {specTestResult.steps.length > 0 ? (
                   <div className="spec-steps-section">
                     <strong>Steps</strong>
-                    <SpecStepList steps={specTestResult.steps} />
+                    <SpecStepList steps={specTestResult.steps} onOpenScreenshot={(path) => void openStepScreenshot(path)} />
                   </div>
                 ) : (
                   <p className="spec-no-steps">Playwright did not report named steps. Use test.step() in an edited spec to show individual step results.</p>

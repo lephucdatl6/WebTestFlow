@@ -19,4 +19,6 @@ export function registerBrowserHandlers(browserManager: BrowserManager): void {
 	ipcMain.handle('browser:reload', () => browserManager.reload());
 	ipcMain.handle('browser:click', (_event, selector: string) => browserManager.click(selector));
 	ipcMain.handle('browser:fill', (_event, selector: string, value: string) => browserManager.fill(selector, value));
+	ipcMain.handle('browser:debug-action', (_event, action: RecordedAction, startUrl?: string) =>
+		browserManager.debugAction(action as Extract<RecordedAction, { selector: string }>, startUrl));
 }

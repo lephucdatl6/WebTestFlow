@@ -1,354 +1,199 @@
 # WebTestFlow
 
-**Visual Web Test Automation & Security Header Analyzer**
+### Visual Web Test Automation & Security Header Analyzer
 
-WebTestFlow is a Windows desktop application designed to make web application testing and browser automation easier through a visual interface.
+[![Electron](https://img.shields.io/badge/Electron-Desktop-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Playwright](https://img.shields.io/badge/Playwright-Test-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/)
+[![Vite](https://img.shields.io/badge/Vite-7.x-646CFF?logo=vite&logoColor=white)](https://vite.dev/)
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)](https://www.microsoft.com/windows)
 
-Instead of manually writing browser automation code, users can open a website, interact with it normally, record their actions, and replay those actions as an automated test using Playwright.
-
-WebTestFlow also includes a basic HTTP security header analyzer for checking common web security configuration headers.
-
-> **Project status:** In development
+> **WebTestFlow** is a Windows desktop application that makes browser test automation easier through a visual interface. Record browser interactions, edit the test flow, add assertions, replay it with Playwright, and export it as a real Playwright TypeScript test.
+>
+> It also includes a **Security Header Analyzer** for checking common HTTP security response headers without requiring a browser.
 
 ---
 
-## Overview
+## Screenshots
 
-WebTestFlow combines visual web testing, browser automation, and basic security configuration checks into a single desktop application.
+| Test Recording | Test Results |
+|---|---|
+| <img src="docs/screenshots/Test_Recording.png" width="800" alt="Test Recording"> | <img src="docs/screenshots/Test_Results.png" width="800" alt="Test Results"> |
 
-The main workflow is:
-
-```text
-Open Website
-     ↓
-Interact with Website
-     ↓
-Record Actions
-     ↓
-Review Test Flow
-     ↓
-Replay Test
-     ↓
-View Results
-```
-
-For example:
-
-```text
-Navigate → /login
-     ↓
-Fill → Email
-     ↓
-Fill → Password
-     ↓
-Click → Sign In
-     ↓
-Assert → URL contains "/dashboard"
-     ↓
-Assert → "Welcome" is visible
-```
-
-The goal is to reduce the barrier to browser test automation while still using Playwright as the underlying automation engine. WebTestFlow can be used to create repeatable functional and smoke tests for critical web application workflows.
+| Security Header Analyzer |
+|---|
+| <img src="docs/screenshots/Header_Analyzer.png" width="1500" alt="Security Header Analyzer"> |
 
 ---
 
 ## Features
 
-### Website Launcher
+### Visual Test Recording
 
-Enter a website URL and open it inside the application's controlled browser.
+Record browser interactions without manually writing Playwright code.
 
-* URL validation
-* Website navigation
-* Browser interaction
-* HTTP and HTTPS protocol restriction
-* Automatic `https://` prefix for hostnames entered without a protocol
-
-### Input and Locator Validation
-
-WebTestFlow validates inputs at the boundaries where they are used:
-
-* Website URLs are parsed and restricted to HTTP or HTTPS before navigation.
-* JSON recordings are checked for the required version, name, creation time, and action list when loaded.
-* Playwright files are restricted to existing `.spec.ts` files when loaded.
-* Recorded semantic locators are used only when they uniquely identify the target element.
-* Ambiguous placeholders, labels, roles, names, or links fall back to a more specific stable CSS selector instead of blindly using `.first()` or `.nth()`.
-* During JSON replay, a semantic locator is checked at runtime and the recorded CSS selector is used when it uniquely identifies the target.
-
-This is locator and input validation for reliable test recording and replay. It is not a complete website security or accessibility audit.
-
-### Action Recorder
-
-Record meaningful browser actions while interacting with a website. The current recorder supports:
-
-- Navigation
-- Clicks
-- Text input
-- Enter/submit actions
-- Checkbox check and uncheck
-- Live action updates
-- Consecutive fill merging for the same field
-- Duplicate click prevention
-- Browser disconnect handling
-- Structured JSON view of recorded actions
-- Reorder recorded steps with drag and drop
-- Delete individual recorded steps
-- Edit the action JSON inline with validation
-
-The recorder stores both a **CSS selector** and a **semantic Playwright locator** when one can be identified. Semantic locator generation can use labels, placeholders, ARIA labels, and accessible roles/names when the locator is unique.
-
-For example, clicking the Home link can be recorded as:
-
-```text
-CLICK → getByRole('link', { name: "Home" })
-```
-
-The underlying action data contains both selector formats:
-
-```json
-[
-     {
-          "type": "click",
-          "selector": "a[href=\"https://example.com/?feed=home\"]",
-          "playwright": "getByRole('link', { name: \"Home\" })"
-     }
-]
-```
-
-Checkbox changes are recorded as state actions instead of clicks or text fills:
-
-```json
-{
-     "type": "check",
-     "selector": "[data-testid=\"login-remember\"]",
-     "playwright": "getByRole(\"checkbox\", { name: \"Remember me\", exact: true })"
-}
-```
-
-Selector discovery prioritizes stable attributes and semantic information such as `id`, `name`, `placeholder`, `aria-label`, `href`, `alt`, and accessible text before falling back to less specific selectors. Custom elements are also inspected for nested interactive elements.
-
-Recorded actions remain in memory during the active recording session. They can be reviewed in the action list or structured JSON view, then saved as a versioned JSON recording through the native file dialog. Long URLs and selectors are shortened in the action list but remain complete in JSON. The recorder focuses on **semantic browser interactions rather than mouse coordinates**:
-
-```text
-Click → Button "Sign In"
-```
-
-instead of:
-
-```text
-Click → X: 524, Y: 318
-```
-
-After stopping, users can continue the same recording and append actions, or start a new recording. Starting a new recording prompts before discarding unsaved changes. The action list can be reordered and individual steps can be deleted; these edits affect the existing flow used by replay, JSON save, and export.
-
-The **Edit JSON** control opens the existing `actions` array for inline editing. The edited value must be a JSON array of supported WebTestFlow actions and assertions before it can be applied.
-
-Same-tab navigation caused directly by a link click is omitted from the action list. Manual URL navigation and new-tab navigation remain recorded.
-
-### Test Replay
-
-Recorded actions can be replayed in a separate Playwright-controlled Chromium window. WebTestFlow displays step progress and the final pass/fail/stopped result, reports the failed action and error when a step fails, and allows an active run to be stopped.
-
-Example:
-
-```text
-1. Navigate       ✓
-2. Click Login    ✓
-3. Fill Email     ✓
-4. Fill Password  ✓
-5. Click Sign In  ✓
-6. Dashboard      ✓
-
-Result: PASS
-```
-
-If an action fails, WebTestFlow reports the failed step and its error details.
+- Open a website in a controlled Chromium browser
+- Record navigation, clicks, text input, form submission, select dropdown choices, and checkbox/radio changes
+- Continue an existing recording
+- Start a new recording
+- Reorder and delete recorded actions
+- Edit the underlying JSON when more control is needed
 
 ### Test Assertions
 
-Test flows support manually added assertions such as:
+Add checks to verify that a workflow actually produces the expected result.
 
-* Verify text is visible
-* Verify an element exists
-* Verify URL contains a specific value
-* Verify page title
-* Verify an element is enabled, disabled, checked, or visible
+Supported assertions include:
 
-Assertions are added explicitly with **Add Assertion** and are never recorded automatically from browser interactions. They are saved in the same versioned JSON `actions` array, replayed as individual test steps, and included in Playwright exports.
+- URL contains a value
+- Text is visible
+- Element exists
+- Page title matches
+- Element state is enabled, disabled, checked, or visible
 
-Element existence and element state assertions use one **Locator** field. It accepts CSS selectors or supported Playwright locator expressions, including `getByRole(...)`, `getByText(...)`, `getByLabel(...)`, `getByPlaceholder(...)`, and `locator(...)`. The same locator resolution is used for replay and Playwright export. Element state assertions support visible, enabled, disabled, and checked.
+Assertions are added manually and become part of the same recorded test flow.
+
+### Playwright Test Replay
+
+Run recorded JSON tests in a fresh Playwright-controlled Chromium instance.
+
+- Step-by-step execution
+- Live progress
+- Pass/fail status
+- Failed-step information
+- Test duration
+- Clean browser startup and shutdown
+- Failure screenshots with the failing element highlighted
+- Debug a failure by opening the page and highlighting the element
+
+#### Debugging failed steps
+
+Each failed step can be clicked to jump to the matching action in the test flow. Two additional actions help diagnose failures:
+
+- **View screenshot** - opens a full-page screenshot captured at the moment of failure, with the failing element outlined.
+- **Open page** - reopens the recording's start URL in the recording browser and highlights the failing element on the live page.
+
+Failure screenshots are stored in the application's data directory and are cleaned up automatically after a retention period.
+
+### JSON Test Editing
+
+Recordings are stored as versioned JSON, making them easy to inspect and modify.
+
+- **Find in JSON** to search actions with match highlighting and navigation.
+- **Double-click** the JSON to edit it in place at the cursor position, then apply or cancel changes.
+- Reorder actions by dragging, and delete individual actions from the flow list.
 
 Example:
 
-```text
-Navigate → /login
-     ↓
-Fill → Email
-     ↓
-Fill → Password
-     ↓
-Click → Sign In
-     ↓
-Assert → URL contains "/dashboard"
-     ↓
-Assert → "Welcome" is visible
+```json
+{
+  "version": 1,
+  "name": "login-test",
+  "createdAt": "2026-10-01T10:00:00.000Z",
+  "startUrl": "https://example.com/login",
+  "actions": [
+    {
+      "type": "fill",
+      "selector": "input[name=\"email\"]",
+      "playwright": "getByLabel(\"Email\")",
+      "value": "user@example.com"
+    }
+  ]
+}
 ```
+
+### Playwright TypeScript Export
+
+Export a recording as a real Playwright `.spec.ts` file.
+
+Generated tests use Playwright Test and include named `test.step()` blocks so individual actions can be tracked clearly.
+
+The exported test can also be edited manually and loaded back into WebTestFlow for execution through the Playwright Test CLI.
 
 ### Security Header Analyzer
 
-WebTestFlow analyzes common HTTP security response headers for a website.
+Analyze common HTTP response security headers directly from the application.
 
-Security analysis uses a dedicated main-process HTTP request with the User-Agent `WebTestFlow Security Analyzer`. It follows normal HTTP redirects, analyzes the final response, and does not depend on opening the URL in Chromium or Playwright. A 403 or 429 may still be returned by a website's WAF or bot protection, WebTestFlow reports that response instead of attempting to bypass it.
+WebTestFlow checks:
 
-The initial headers include:
+| Header | Purpose |
+|---|---|
+| `Strict-Transport-Security` | Helps enforce HTTPS connections |
+| `Content-Security-Policy` | Controls allowed content sources |
+| `X-Frame-Options` | Helps prevent clickjacking |
+| `X-Content-Type-Options` | Helps prevent MIME-type sniffing |
+| `Referrer-Policy` | Controls referrer information |
+| `Permissions-Policy` | Controls access to browser features |
 
-* Strict-Transport-Security
-* Content-Security-Policy
-* X-Frame-Options
-* X-Content-Type-Options
-* Referrer-Policy
-* Permissions-Policy
+The analyzer reports headers as **Present**, **Missing**, or **Review** where appropriate. It also displays response status and final URL information.
 
-Example result:
+WebTestFlow does not attempt to bypass security challenges such as Cloudflare protection. A `403` or `429` response is reported as the response received by the analyzer.
 
-```text
-Security Headers
+---
 
-Strict-Transport-Security    ✓ Present
-Content-Security-Policy      ✓ Present
-X-Frame-Options              ✗ Missing
-X-Content-Type-Options       ✓ Present
-Referrer-Policy              ✓ Present
-Permissions-Policy           ✗ Missing
-```
+## Typical Workflow
+<img src="docs/screenshots/Workflow.png" width="400" alt="Typical Workflow">
 
-The analyzer explains what each header does and provides general configuration recommendations.
+A recording can also be saved as JSON and loaded again later.
 
-The result also includes the HTTP status code, final URL after redirects, and basic response context. Responses in the 2xx range are treated as normal; 4xx and 5xx responses are shown as error responses; 403 and 429 responses may be shown as a possible challenge or blocked response. This context describes the response received by WebTestFlow and does not claim a definite bot challenge.
+---
 
-Header values are marked **Present** whenever the response contains the header. A changing CSP nonce or directives such as `unsafe-inline` do not change the Present state. A conservative **Review** state is used only for an explicitly present `X-Content-Type-Options` value that is not `nosniff`.
+## Locator Strategy
 
-**Note:** This feature is a configuration check, not a complete security assessment.
+WebTestFlow records both a CSS selector and, where possible, a semantic Playwright locator.
 
-### Test Reports
-
-Test execution currently provides:
-
-* Live running-step status for JSON recordings and loaded Playwright tests
-* Passed, failed, and stopped status
-* Step-level results for JSON replay actions
-* Named `test.step()` results for exported Playwright tests and edited specs that use `test.step()`
-* Test duration
-* Expandable Playwright error details, including locator errors and source lines when reported
-
-Planned reporting features include screenshots and security analysis results.
-
-### Test Storage
-
-Recordings can be saved and loaded as versioned JSON files through native Electron file dialogs. JSON remains WebTestFlow's internal source format for editing and replay. SQLite and automatic background persistence are not currently implemented.
-
-### Playwright Export
-
-Recorded tests can be exported as editable Playwright TypeScript test files. Actions with semantic locators use those locators, other actions fall back to CSS locators. Each exported navigation, click, fill, checkbox check/uncheck, Enter action, and assertion is wrapped in a named `test.step()` so the exported test can report progress while it runs.
-
-Exported `.spec.ts` files can be edited and loaded back into WebTestFlow for direct Playwright Test execution. This provides a separate workflow for users who want to edit generated Playwright code manually before running it.
+Examples of supported locators include:
 
 ```text
-Record / Load JSON
-        ↓
-Generate Playwright .spec.ts
-        ↓
-Edit .spec.ts manually
-        ↓
-Load .spec.ts
-        ↓
-Run Playwright Test
-        ↓
-View execution progress and result
+#login-remember
+[data-testid="login-remember"]
+input[name="email"]
+getByRole("button", { name: "Sign In", exact: true })
+getByText("Dashboard", { exact: true })
+getByLabel("Email")
+getByPlaceholder("Search")
+locator("input[name=\"email\"]")
 ```
 
-The JSON recording remains the source for WebTestFlow recording editing and replay. Edited TypeScript is **not** converted back into JSON.
+The recorder prefers semantic locators such as `getByRole()`, `getByLabel()`, and `getByPlaceholder()` when they uniquely identify an element. When a semantic locator would be ambiguous, WebTestFlow falls back to a unique CSS locator rather than guessing with `.first()`.
 
-Only load and run `.spec.ts` files you trust because they execute with the current user's permissions.
-Example:
+This approach is intended to reduce brittle selectors and make recorded tests more reliable across page changes.
 
-```typescript
-test('Login Test', async ({ page }) => {
-     await test.step('Navigate to https://example.com/login', async () => {
-          await page.goto('https://example.com/login');
-     });
-     await test.step('Fill Email', async () => {
-          await page.getByLabel('Email').fill('test@example.com');
-     });
-     await test.step('Fill Password', async () => {
-          await page.getByLabel('Password').fill('password123');
-     });
-     await test.step('Click Sign In', async () => {
-          await page.getByRole('button', { name: 'Sign In' }).click();
-     });
-     await expect(page).toHaveURL(/dashboard/);
-});
-```
+---
 
-Use **Load Playwright** to select an edited `.spec.ts` file and **Run Test** to execute it directly with Playwright Test. The selected file is not modified, and it is never converted back into JSON. For individual live steps in a manually edited file, wrap actions in `test.step()`; ordinary unwrapped Playwright API calls still run normally, but Playwright may not report them as named steps.
+## Architecture
+
+WebTestFlow uses Electron's main process, preload bridge, and renderer process to separate the UI from privileged Node.js operations.
+
+<img src="docs/screenshots/Architecture.png" width="500" alt="Architecture">
+
+
+### Electron Security Model
+
+The renderer is configured with:
+
+- `contextIsolation: true`
+- `nodeIntegration: false`
+- A controlled `contextBridge` API
+
+The React UI therefore does not directly access Node.js APIs. File operations, browser automation, HTTP analysis, and Playwright Test execution are handled by the Electron main process.
 
 ---
 
 ## Tech Stack
 
-### Frontend
-
-* React
-* TypeScript
-
-Used for:
-
-* Application UI
-* Test flow visualization
-* Security results
-* Test reports
-* Settings
-* Test management
-
-### Desktop
-
-* Electron
-
-Used for:
-
-* Windows desktop application
-* Application lifecycle
-* Native filesystem access
-* Communication between UI and application processes
-* Windows executable packaging
-
-### Browser Automation
-
-* Playwright
-
-Used for:
-
-* Chromium automation
-* Browser navigation
-* Clicking elements
-* Filling forms
-* Reading page information
-* Assertions
-* Screenshots
-* Test execution
-
-### Application Logic
-
-* Node.js
-* TypeScript
-
-Used for:
-
-* Playwright integration
-* Security header analysis
-* Test management
-* File operations
-* Application services
+| Area | Technology |
+|---|---|
+| Desktop | Electron |
+| Frontend | React 19 |
+| Language | TypeScript |
+| Build tool | Vite |
+| Browser automation | Playwright |
+| Test framework | Playwright Test |
+| Backend/runtime | Node.js through Electron main process |
+| Icons | lucide-react |
+| Development tools | concurrently, wait-on |
 
 ---
 
@@ -359,152 +204,182 @@ WebTestFlow/
 │
 ├── src/
 │   ├── main/                # Electron main process and services
-│   │   ├── browser/         # Browser control and recording
+│   │   ├── browser/         # Browser control, recording, and locator resolution
 │   │   ├── ipc/             # Communication between processes
-│   │   ├── recording/       # JSON storage and Playwright export
+│   │   ├── recording/       # JSON storage, Playwright export, and screenshot cleanup
+│   │   ├── security/        # HTTP security header analysis
 │   │   └── tests/           # JSON replay and spec test execution
 │   │
-│   ├── preload/             # Secure IPC bridge
+│   ├── preload/             # Secure IPC bridge (contextBridge)
 │   │
 │   ├── renderer/            # React desktop application UI
 │   │   └── components/      # UI components
 │   │
 │   └── shared/              # Shared types and utilities
 │
+├── docs/
+│   └── screenshots/         # README images
+│
+├── public/
 ├── package.json
 ├── tsconfig.json
 └── README.md
 ```
 
----
-
-## Development Roadmap
-
-### Phase 1 - Desktop Application
-
-* [x] Electron application
-* [x] React UI
-* [x] URL input
-* [x] Basic navigation
-
-### Phase 2 - Playwright Integration
-
-* [x] Launch Chromium
-* [x] Navigate to URLs
-* [x] Close browser
-* [x] Basic browser interaction
-
-### Phase 3 - Action Recording
-
-* [x] Record clicks
-* [x] Record text input
-* [x] Record navigation
-* [x] Record Enter/submit actions
-* [x] Record checkbox check and uncheck
-* [x] Convert browser events into structured test actions
-* [x] Update the action list while recording
-* [x] Merge consecutive fills for the same selector
-* [x] Generate semantic Playwright locators when possible
-* [x] Handle custom elements and nested accessible controls
-* [x] Review recorded actions as formatted JSON
-* [x] Display live recording status and action updates
-* [x] Keep CSS selectors and semantic Playwright locators in structured actions
-* [x] Download recorded actions as JSON
-* [x] Number and align recorded action steps
-* [x] Detect browser window disconnects
-* [x] Remove same-tab navigation events that duplicate a link-click navigation
-* [x] Continue a stopped recording or start a new recording
-* [x] Reorder and delete test-flow steps
-
-### Phase 4 - Recording Export and Storage
-
-* [x] Generate Playwright test code
-* [x] Export generated tests
-* [x] Save recordings to JSON files through a native file dialog
-* [x] Load saved recordings when needed
-* [x] Edit the action JSON inline
-* [x] Validate loaded recording documents
-* [x] Load edited Playwright `.spec.ts` files
-* [x] Run loaded Playwright `.spec.ts` files
-* [x] Stop loaded Playwright `.spec.ts` execution
-* [x] Report `.spec.ts` execution progress and results
-
-### Phase 5 - Test Replay
-
-* [x] Run tests
-* [x] Stop tests
-* [x] Pass/fail status
-* [x] Error handling
-* [x] Live replay step progress
-* [x] Per-action pass/fail results
-* [x] Expandable replay error details
-
-### Phase 6 - Security Analyzer
-
-* [x] Analyze HTTP security response headers
-* [x] Strict-Transport-Security
-* [x] Content-Security-Policy
-* [x] X-Frame-Options
-* [x] X-Content-Type-Options
-* [x] Referrer-Policy
-* [x] Permissions-Policy
-* [x] Display header values and explanations
-* [x] Show present, missing, and review states
-* [x] Display HTTP status code and final URL
-* [x] Provide basic challenge/error response context
-
-### Phase 7 - Assertions
-
-* [x] URL assertions
-* [x] Text visibility
-* [x] Element existence
-* [x] Page title
-* [x] Element state
-* [x] Validate smoke-test workflows
-
-### Phase 8 - Test Results
-
-* [x] Execution progress and results
-* [x] Test duration
-* [x] Pass/fail summary
-
-### Phase 9 - Advanced Test Execution
-
-* [ ] Test suites
-* [ ] Run multiple tests
-* [ ] Create smoke-test suites
-* [ ] Parallel test execution
-* [ ] Retry failed tests
-* [ ] Test execution history
+> The exact file list may change as the project evolves. The structure above highlights the main architectural areas.
 
 ---
 
-## Why This Project?
+## Getting Started
 
-WebTestFlow is being developed to explore practical software testing and browser automation while building a tool that can be useful for QA workflows.
+### Prerequisites
 
-The project focuses on:
+- Windows
+- Node.js
+- npm
+- Git
 
-* Web application testing
-* Test automation
-* Smoke testing
-* Browser automation
-* Test case design
-* Bug reproduction
-* HTTP security configuration
-* Test reporting
-* Desktop application development
+Playwright manages the Chromium browser used by the application. If the required browser binaries are not installed, install them with the Playwright CLI used by the project.
 
-It also provides hands-on experience working with multiple parts of a modern application:
+### 1. Clone the repository
 
-```text
-React
-  ↓
-Electron IPC
-  ↓
-Node.js
-  ↓
-Playwright
-  ↓
-Chromium
+```bash
+git clone <YOUR-GITHUB-REPOSITORY-URL>
+cd WebTestFlow
+```
+
+### 2. Install dependencies
+
+```bash
+npm install
+```
+
+### 3. Start the development application
+
+```bash
+npm run dev
+```
+
+This starts the Vite development server and launches Electron.
+
+### 4. Build the application
+
+```bash
+npm run build
+```
+
+### 5. Run the built application
+
+```bash
+npm run start
+```
+
+---
+
+## Testing Workflow
+
+### Record a test
+
+1. Launch WebTestFlow.
+2. Open the target website.
+3. Start recording.
+4. Perform the workflow normally.
+5. Stop recording.
+6. Review or edit the recorded actions.
+7. Add assertions where needed.
+8. Save the recording as JSON.
+
+### Replay a test
+
+Run the recording using the built-in test runner. WebTestFlow launches a fresh Chromium instance and executes the recorded steps independently from the interactive recording browser.
+
+### Export a Playwright test
+
+Export the recording to a `.spec.ts` file when you want a normal Playwright Test file that can be inspected or edited manually.
+
+### Load and run an edited spec
+
+Edited Playwright `.spec.ts` files can be loaded back into WebTestFlow and executed using the Playwright Test CLI.
+
+---
+
+## Security & Reliability Considerations
+
+WebTestFlow is designed to keep the security analyzer honest and the automation engine predictable.
+
+- Browser automation is isolated from the React renderer through Electron IPC.
+- Semantic locators are only preferred when they are unique.
+- Ambiguous semantic locators fall back to unique CSS selectors.
+- Recorded navigation is deduplicated when it is already represented by a link click.
+- Text input is debounced so normal typing becomes a single fill action.
+- Select dropdown choices replay through `selectOption()` by option value or label.
+- Checkbox and radio interactions are recorded as `check` and `uncheck` actions.
+- Test execution uses a separate browser instance from the interactive recorder.
+- Running tests supports stopping and cleanup.
+- Security analysis reports the HTTP response it actually receives rather than attempting to bypass WAF or challenge systems.
+
+### Important limitation
+
+Security-header results can differ between scanners because websites may return different responses depending on request headers, IP address, cookies, timing, redirects, or WAF/CDN behavior. A `403` response from WebTestFlow therefore represents the response received by WebTestFlow, not necessarily every response another scanner may receive.
+
+---
+
+## Roadmap
+
+### Completed
+
+- [x] Phase 1 — Desktop Application
+- [x] Phase 2 — Playwright Integration
+- [x] Phase 3 — Action Recording
+- [x] Phase 4 — Recording Storage & Export
+- [x] Phase 5 — Test Replay
+- [x] Phase 6 — Security Header Analyzer
+- [x] Phase 7 — Test Assertions
+- [x] Phase 8 — Test Results
+
+### Future
+
+- [ ] Phase 9 — Advanced Test Execution
+  - [ ] Test suites
+  - [ ] Run multiple tests
+  - [ ] Smoke-test suites
+  - [ ] Parallel test execution
+  - [ ] Retry failed tests
+  - [ ] Test execution history
+
+The roadmap may change as the project develops.
+
+---
+
+## Current Scope
+
+WebTestFlow currently focuses on a simple workflow:
+
+> **Record → Edit → Assert → Replay → Export**
+
+It is intended to reduce the barrier to browser test automation while still producing real Playwright tests that can be inspected and modified by developers and testers.
+
+The Security Header Analyzer is a separate utility for quickly checking common HTTP security headers from the same desktop application.
+
+---
+
+## Limitations
+
+- WebTestFlow is currently designed for Windows desktop use.
+- Recorded tests depend on the target website's DOM and accessible names.
+- Highly dynamic websites may still require manual selector or test editing.
+- Some websites may block automated requests or browser automation.
+- Security-header results can vary when a website uses Cloudflare or another WAF/CDN.
+- The advanced test-suite features in Phase 9 are not implemented yet.
+
+---
+
+## Project Documentation
+
+The repository can contain two levels of documentation:
+
+- **`README.md`** — public project overview, setup, features, architecture, and roadmap.
+- **Project guide / technical notes** — deeper explanations of implementation details and interview talking points.
+
+Keeping the public README focused makes the GitHub repository easier to understand while allowing detailed technical documentation to remain available separately.
 

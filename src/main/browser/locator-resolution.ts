@@ -107,6 +107,30 @@ export function resolveLocator(page: Page, action: Extract<RecordedAction, { sel
 	}
 }
 
+export function narrowLocatorExpressionByValue(expression: string, value: string): string {
+	const parsed = parseLocatorExpression(expression);
+	const valueFilter = `[value=${JSON.stringify(value)}]`;
+	if (!parsed) {
+		return `locator(${JSON.stringify(expression)}).and(locator(${JSON.stringify(valueFilter)}))`;
+	}
+
+	switch (parsed.kind) {
+		case 'css':
+			return `locator(${JSON.stringify(parsed.selector)}).and(locator(${JSON.stringify(valueFilter)}))`;
+		case 'role': {
+			const options = parsed.name === undefined
+				? ''
+				: `, { name: ${JSON.stringify(parsed.name)}${parsed.exact === undefined ? '' : `, exact: ${parsed.exact}`} }`;
+			return `getByRole(${JSON.stringify(parsed.role)}${options}).and(locator(${JSON.stringify(valueFilter)}))`;
+		}
+		case 'text':
+		case 'label':
+		case 'placeholder':
+			// These locator kinds don't pair with a value filter; leave them unchanged.
+			return expression;
+	}
+}
+
 export function locatorExpressionFor(
 	action: Extract<RecordedAction, { selector: string }>,
 	transformCss: (selector: string) => string = (selector) => selector

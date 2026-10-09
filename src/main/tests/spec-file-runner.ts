@@ -5,6 +5,7 @@ import path from 'node:path';
 import { dialog } from 'electron';
 import { chromium } from 'playwright';
 import { SpecFileSelection, SpecTestProgress, SpecTestResult, SpecTestStep } from '../../shared/types/spec-test';
+import { cleanupScreenshots } from '../recording/screenshot-cleanup';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -16,15 +17,16 @@ function stripAnsi(value: string): string {
 	return value.replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '');
 }
 
-function collectSteps(steps: unknown[]): SpecTestStep[] {
+function collectSteps(steps: unknown[], screenshots: string[] = []): SpecTestStep[] {
 	return steps.flatMap((stepValue) => {
 		const step = asRecord(stepValue);
 		if (!step || typeof step.title !== 'string') return [];
-		const children = collectSteps(Array.isArray(step.steps) ? step.steps : []);
+		const children = collectSteps(Array.isArray(step.steps) ? step.steps : [], screenshots);
 		const error = asRecord(step.error);
 		const message = typeof error?.message === 'string' ? stripAnsi(error.message) : undefined;
 		const location = asRecord(error?.location) ?? asRecord(step.location);
 		const status = message || children.some((child) => child.status === 'failed') ? 'failed' : 'passed';
+		const screenshotPath = status === 'failed' && screenshots.length > 0 ? screenshots[0] : undefined;
 		return [{
 			title: step.title,
 			status,
@@ -32,9 +34,18 @@ function collectSteps(steps: unknown[]): SpecTestStep[] {
 			error: message,
 			file: typeof location?.file === 'string' ? location.file : undefined,
 			line: typeof location?.line === 'number' ? location.line : undefined,
+			screenshotPath,
 			children: children.length > 0 ? children : undefined
 		}];
 	});
+}
+
+function screenshotPathsFromResult(result: JsonRecord | undefined): string[] {
+	if (!result || !Array.isArray(result.attachments)) return [];
+	return result.attachments
+		.map((attachment) => asRecord(attachment))
+		.filter((attachment) => attachment?.contentType === 'image/png' && typeof attachment.path === 'string')
+		.map((attachment) => attachment!.path as string);
 }
 
 function collectReport(suites: unknown[], parentTitles: string[] = []): { testName?: string; errors: string[]; failed: boolean; steps: SpecTestStep[] } {
@@ -65,7 +76,8 @@ function collectReport(suites: unknown[], parentTitles: string[] = []): { testNa
 							for (const resultValue of test.results) {
 								const result = asRecord(resultValue);
 								if (result?.status === 'failed') failed = true;
-								if (Array.isArray(result?.steps)) steps.push(...collectSteps(result.steps));
+										const screenshots = screenshotPathsFromResult(result);
+										if (Array.isArray(result?.steps)) steps.push(...collectSteps(result.steps, screenshots));
 								if (Array.isArray(result?.errors)) {
 									for (const errorValue of result.errors) {
 										const error = asRecord(errorValue);
@@ -97,7 +109,27 @@ export class SpecFileRunner {
 	private child: ChildProcessWithoutNullStreams | undefined;
 	private stopRequested = false;
 
-	constructor(private readonly projectRoot: string) {}
+	constructor(private readonly projectRoot: string, private readonly screenshotsDir?: string) {}
+
+	private async persistScreenshots(steps: SpecTestStep[]): Promise<void> {
+		if (!this.screenshotsDir) return;
+		const persistList = async (list: SpecTestStep[]): Promise<void> => {
+			for (const step of list) {
+				if (step.screenshotPath) {
+					try {
+						await fs.mkdir(this.screenshotsDir!, { recursive: true });
+						const destination = path.join(this.screenshotsDir!, `spec-${Date.now()}-${path.basename(step.screenshotPath)}`);
+						await fs.copyFile(step.screenshotPath, destination);
+						step.screenshotPath = destination;
+					} catch {
+						step.screenshotPath = undefined;
+					}
+				}
+				if (step.children?.length) await persistList(step.children);
+			}
+		};
+		await persistList(steps);
+	}
 
 	public async load(): Promise<SpecFileSelection | null> {
 		const selection = await dialog.showOpenDialog({
@@ -197,7 +229,7 @@ export class SpecFileRunner {
 			await fs.mkdir(outputDirectory, { recursive: true });
 			const reporterSource = `const marker = ${JSON.stringify(progressMarker)};\nclass WebTestFlowProgressReporter {\n  constructor() { this.ids = new WeakMap(); this.nextId = 0; }\n  send(event) { process.stdout.write(marker + JSON.stringify(event) + "\\n"); }\n  onTestBegin(test) { this.send({ type: "test", title: test.title }); }\n  shouldReport(step) {\n    if (step.category === "test.step") return true;\n    if (step.category !== "pw:api" && step.category !== "expect") return false;\n    for (let parent = step.parent; parent; parent = parent.parent) if (parent.category === "test.step") return false;\n    return true;\n  }\n  onStepBegin(test, result, step) { if (this.shouldReport(step)) { const id = ++this.nextId; this.ids.set(step, id); this.send({ type: "step-begin", id, title: step.title, location: step.location }); } }\n  onStepEnd(test, result, step) { const id = this.ids.get(step); if (id !== undefined) this.send({ type: "step-end", id, status: step.error ? "failed" : "passed", duration: step.duration, error: step.error?.message, location: step.error?.location || step.location }); }\n}\nmodule.exports = WebTestFlowProgressReporter;\n`;
 			await fs.writeFile(reporterPath, reporterSource, 'utf8');
-			await fs.writeFile(configPath, `module.exports = { testDir: ${JSON.stringify(path.dirname(filePath))}, testMatch: [${JSON.stringify(path.basename(filePath))}], reporter: [['json'], [${JSON.stringify(reporterPath)}]], use: { launchOptions: { executablePath: ${JSON.stringify(chromium.executablePath())} } } };`, 'utf8');
+			await fs.writeFile(configPath, `module.exports = { testDir: ${JSON.stringify(path.dirname(filePath))}, testMatch: [${JSON.stringify(path.basename(filePath))}], reporter: [['json'], [${JSON.stringify(reporterPath)}]], use: { screenshot: 'only-on-failure', launchOptions: { executablePath: ${JSON.stringify(chromium.executablePath())} } } };`, 'utf8');
 			const child = spawn(process.execPath, [cliPath, 'test', '--config', configPath, '--workers=1', '--output', outputDirectory], {
 				cwd: this.projectRoot,
 				windowsHide: true,
@@ -247,6 +279,10 @@ export class SpecFileRunner {
 			const testName = collected.testName?.startsWith(`${fileName} > `)
 				? collected.testName.slice(fileName.length + 3)
 				: collected.testName;
+
+			await this.persistScreenshots(collected.steps);
+			// Cleanup finishes before the temporary Playwright output directory is removed.
+			await cleanupScreenshots(this.screenshotsDir);
 
 			return {
 				status: failed ? 'failed' : 'passed',

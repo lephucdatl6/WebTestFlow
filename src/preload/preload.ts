@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('webTestFlow', {
 	reload: () => ipcRenderer.invoke('browser:reload'),
 	click: (selector: string) => ipcRenderer.invoke('browser:click', selector),
 	fill: (selector: string, value: string) => ipcRenderer.invoke('browser:fill', selector, value),
+	debugAction: (action: RecordingDocument['actions'][number], startUrl?: string) =>
+		ipcRenderer.invoke('browser:debug-action', action, startUrl) as Promise<void>,
+	openScreenshot: (filePath: string) => ipcRenderer.invoke('screenshot:open', filePath) as Promise<string>,
 	saveRecording: (document: RecordingDocument) => ipcRenderer.invoke('recording:save', document) as Promise<boolean>,
 	loadRecording: () => ipcRenderer.invoke('recording:load') as Promise<RecordingDocument | null>,
 	generatePlaywrightTest: (name: string, startUrl: string | undefined, actions: RecordingDocument['actions']) => ipcRenderer.invoke('recording:generate-playwright', name, startUrl, actions) as Promise<string>,

@@ -21,6 +21,8 @@ declare global {
       reload: () => Promise<void>;
       click: (selector: string) => Promise<void>;
       fill: (selector: string, value: string) => Promise<void>;
+      debugAction: (action: RecordingDocument['actions'][number], startUrl?: string) => Promise<void>;
+      openScreenshot: (filePath: string) => Promise<string>;
       saveRecording: (document: RecordingDocument) => Promise<boolean>;
       loadRecording: () => Promise<RecordingDocument | null>;
       generatePlaywrightTest: (name: string, startUrl: string | undefined, actions: RecordingDocument['actions']) => Promise<string>;

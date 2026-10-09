@@ -27,6 +27,9 @@ input {
 }
 
 .toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -437,6 +440,88 @@ h1 {
   opacity: 0.5;
 }
 
+.action-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.json-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.json-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 9px;
+  color: #e8edf2;
+  background: #192228;
+  border: 1px solid #52616b;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.json-search input:focus {
+  outline: none;
+  border-color: #7dd3c7;
+}
+
+.json-search-count {
+  flex: 0 0 auto;
+  color: #9eabb4;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.json-search button {
+  flex: 0 0 auto;
+  width: 24px;
+  padding: 3px 0;
+  color: #dfe7ec;
+  background: transparent;
+  border: 1px solid #52616b;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.json-search button:hover:not(:disabled) {
+  background: #35434c;
+}
+
+.json-search button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.json-view {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.json-view pre {
+  margin: 0;
+  white-space: pre;
+}
+
+.json-match {
+  background: #5a4a1a;
+  color: #ffe9a8;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.json-match.active {
+  background: #ff5722;
+  color: #fff;
+}
+
 .recording-indicator {
   width: 10px;
   height: 10px;
@@ -456,9 +541,21 @@ h1 {
   align-items: start;
 }
 
+.recording-body.with-data .recording-column > .recording-column-title,
+.recording-body.with-data .action-json-header {
+  min-height: 34px;
+  box-sizing: border-box;
+}
+
 .recording-column,
 .structured-data-panel {
   min-width: 0;
+}
+
+.recording-body.with-data .recording-column > .recording-column-title {
+  display: flex;
+  align-items: center;
+  margin: 0 0 10px;
 }
 
 .recording-column-title {
@@ -491,6 +588,22 @@ h1 {
 
 .recorded-actions li.recorded-action-drop-target {
   box-shadow: inset 0 2px #7dd3c7;
+}
+
+.recorded-actions li.action-flash {
+  border-radius: 4px;
+  animation: action-flash 3.5s ease-out;
+}
+
+@keyframes action-flash {
+  0%, 55% {
+    background: rgba(240, 120, 120, 0.28);
+    box-shadow: inset 3px 0 0 #f07878;
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 .action-drag-handle,
@@ -645,6 +758,16 @@ h1 {
 
 .structured-data-editor {
   display: block;
+  width: 100%;
+  height: 520px;
+  max-height: 520px;
+  padding: 12px;
+  overflow: auto;
+  color: #cfe3d5;
+  background: #12181c;
+  border: 1px solid #3a464f;
+  border-radius: 4px;
+  font: 12px/1.5 Consolas, 'Courier New', monospace;
   resize: vertical;
 }
 
@@ -857,6 +980,44 @@ h1 {
   border-left-color: #f2c14e;
 }
 
+.spec-step.clickable {
+  cursor: pointer;
+}
+
+.spec-step.clickable:hover {
+  background: #223038;
+}
+
+.spec-step-debug {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  color: #ffb59e;
+  background: transparent;
+  border: 1px solid #a34a2f;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.spec-step-debug:hover {
+  background: #3a2418;
+}
+
+.spec-step-screenshot {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  color: #9ecbff;
+  background: transparent;
+  border: 1px solid #2f5a8a;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.spec-step-screenshot:hover {
+  background: #1a2a3a;
+}
+
 .spec-step-heading {
   display: flex;
   align-items: baseline;
@@ -905,6 +1066,12 @@ h1 {
   color: #f3a4a4;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.spec-step-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .spec-step-detail {

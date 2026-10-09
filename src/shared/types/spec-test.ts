@@ -10,6 +10,8 @@ export interface SpecTestStep {
 	error?: string;
 	file?: string;
 	line?: number;
+	actionIndex?: number;
+	screenshotPath?: string;
 	children?: SpecTestStep[];
 }
 

@@ -1,5 +1,6 @@
 import { chromium, Browser, Page } from 'playwright';
 import { RecordedAction, RecordedAssertion } from '../../shared/types/recording';
+import { resolveLocator } from './locator-resolution';
 
 export class BrowserManager {
 	private browser: Browser | null = null;
@@ -97,6 +98,51 @@ export class BrowserManager {
 	public async fill(selector: string, value: string): Promise<void> {
 		await this.launch();
 		await this.requirePage().locator(selector).fill(value);
+	}
+
+	public async debugAction(action: Extract<RecordedAction, { selector: string }>, startUrl: string | undefined): Promise<void> {
+		await this.launch();
+		const page = this.requirePage();
+
+		if (startUrl) {
+			const currentUrl = page.url();
+			if (!currentUrl.startsWith(startUrl)) {
+				await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
+				// Let dynamic content finish so the locator resolves and the outline isn't wiped.
+				await page.waitForLoadState('load').catch(() => undefined);
+			}
+		}
+
+		const locator = resolveLocator(page, action);
+		const count = await locator.count();
+		if (count === 0) {
+			throw new Error('No element matches this locator on the page.');
+		}
+		const target = count === 1 ? locator : locator.first();
+
+		// Clear any previous debug highlight so only one element stays outlined.
+		await page.evaluate(() => {
+			const previous = document.querySelector<HTMLElement>('[data-wtf-debug-highlight]');
+			if (previous) {
+				previous.style.outline = previous.dataset.wtfPreviousOutline ?? '';
+				previous.style.outlineOffset = previous.dataset.wtfPreviousOutlineOffset ?? '';
+				previous.removeAttribute('data-wtf-debug-highlight');
+				delete previous.dataset.wtfPreviousOutline;
+				delete previous.dataset.wtfPreviousOutlineOffset;
+			}
+		}).catch(() => undefined);
+
+		await target.waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
+		await target.scrollIntoViewIfNeeded().catch(() => undefined);
+		await target.evaluate((element) => {
+			const html = element as HTMLElement;
+			html.dataset.wtfPreviousOutline = html.style.outline;
+			html.dataset.wtfPreviousOutlineOffset = html.style.outlineOffset;
+			html.setAttribute('data-wtf-debug-highlight', 'true');
+			html.style.outline = '3px solid #ff5722';
+			html.style.outlineOffset = '2px';
+			// Highlight persists until the next debugAction or a page navigation.
+		});
 	}
 
 	public async goBack(): Promise<void> {
@@ -285,6 +331,11 @@ export class BrowserManager {
 
 			function selectorFromElement(element: Element): string {
 				const tag = element.tagName.toLowerCase();
+				const dataTestId = element.getAttribute('data-testid');
+				if (dataTestId) {
+					return `[data-testid="${dataTestId}"]`;
+				}
+
 				const name = element.getAttribute('name');
 				if (name) {
 					return `${tag}[name="${name}"]`;
@@ -298,11 +349,6 @@ export class BrowserManager {
 				const ariaLabel = element.getAttribute('aria-label');
 				if (ariaLabel) {
 					return `${tag}[aria-label="${ariaLabel}"]`;
-				}
-
-				const dataTestId = element.getAttribute('data-testid');
-				if (dataTestId) {
-					return `[data-testid="${dataTestId}"]`;
 				}
 
 				if (element instanceof HTMLElement && element.id) {
@@ -401,6 +447,28 @@ export class BrowserManager {
 				return undefined;
 			}
 
+			const nameFromContentRoles = new Set([
+				'button', 'cell', 'checkbox', 'columnheader', 'gridcell', 'heading', 'link', 'menuitem',
+				'menuitemcheckbox', 'menuitemradio', 'option', 'radio', 'rowheader', 'switch', 'tab',
+				'tooltip', 'treeitem'
+			]);
+
+			function labelTextsForElement(element: Element): string[] {
+				if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) {
+					return [];
+				}
+
+				return Array.from(element.labels ?? [])
+					.map((label) => {
+						// Clone the label and drop embedded controls so a wrapping label's
+						// text does not include option/input content.
+						const clone = label.cloneNode(true) as HTMLElement;
+						clone.querySelectorAll('input, textarea, select, button, [contenteditable="true"]').forEach((control) => control.remove());
+						return clone.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+					})
+					.filter((text): text is string => Boolean(text));
+			}
+
 			function roleNameForElement(element: Element, role: string): string {
 				const labelledBy = element.getAttribute('aria-labelledby');
 				const labelledByText = labelledBy
@@ -408,13 +476,14 @@ export class BrowserManager {
 					.map((id) => document.getElementById(id)?.textContent?.trim())
 					.filter((part): part is string => Boolean(part))
 					.join(' ');
+				const labelText = labelTextsForElement(element).find(Boolean);
 				const ownText = Array.from(element.childNodes)
 					.filter((node) => node.nodeType === Node.TEXT_NODE)
 					.map((node) => node.textContent?.trim())
 					.filter((part): part is string => Boolean(part))
 					.join(' ');
-				const roleText = role ? element.textContent?.trim() : undefined;
-				return (element.getAttribute('aria-label') ?? labelledByText ?? element.getAttribute('title') ?? roleText ?? ownText ?? '')
+				const roleText = nameFromContentRoles.has(role) ? element.textContent?.trim() : undefined;
+				return (element.getAttribute('aria-label') ?? labelledByText ?? labelText ?? element.getAttribute('title') ?? roleText ?? ownText ?? '')
 					.replace(/\s+/g, ' ')
 					.trim();
 			}
@@ -430,9 +499,7 @@ export class BrowserManager {
 						.join(' '));
 				}
 
-				if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
-					names.push(...Array.from(element.labels ?? []).map((label) => label.textContent ?? ''));
-				}
+				names.push(...labelTextsForElement(element));
 
 				return names.map((name) => name.replace(/\s+/g, ' ').trim()).filter(Boolean);
 			}
@@ -450,12 +517,7 @@ export class BrowserManager {
 				let ambiguousSemanticLocator = false;
 
 				if (isFillableElement(element) || isCheckboxElement(element)) {
-					const labels = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement
-						? Array.from(element.labels ?? [])
-						: [];
-					const labelText = labels
-						.map((label) => label.textContent?.replace(/\s+/g, ' ').trim())
-						.find((text): text is string => Boolean(text));
+					const labelText = labelTextsForElement(element).find(Boolean);
 					if (labelText) {
 						if (hasUniqueLabelName(element, labelText)) {
 							return `getByLabel(${JSON.stringify(labelText)}, { exact: true })`;
@@ -502,11 +564,19 @@ export class BrowserManager {
 			}
 
 			function isFillableElement(element: Element): boolean {
-				return element.matches('input, textarea, select, [contenteditable="true"]') && !isCheckboxElement(element);
+				return element.matches('input, textarea, select, [contenteditable="true"]') && !isCheckboxElement(element) && !isRadioElement(element);
 			}
 
 			function isCheckboxElement(element: Element): element is HTMLInputElement {
 				return element instanceof HTMLInputElement && element.type === 'checkbox';
+			}
+
+			function isRadioElement(element: Element): element is HTMLInputElement {
+				return element instanceof HTMLInputElement && element.type === 'radio';
+			}
+
+			function isCheckableElement(element: Element): element is HTMLInputElement {
+				return isCheckboxElement(element) || isRadioElement(element);
 			}
 
 			function fillableElementFromEvent(event: Event): Element | undefined {
@@ -516,9 +586,9 @@ export class BrowserManager {
 				return composedTarget ?? (event.target instanceof Element && isFillableElement(event.target) ? event.target : undefined);
 			}
 
-			function checkboxElementFromEvent(event: Event): HTMLInputElement | undefined {
+			function checkableElementFromEvent(event: Event): HTMLInputElement | undefined {
 				const composedTarget = event.composedPath().find(
-					(pathItem): pathItem is HTMLInputElement => pathItem instanceof HTMLInputElement && pathItem.type === 'checkbox'
+					(pathItem): pathItem is HTMLInputElement => pathItem instanceof HTMLInputElement && (pathItem.type === 'checkbox' || pathItem.type === 'radio')
 				);
 				if (composedTarget) {
 					return composedTarget;
@@ -528,18 +598,22 @@ export class BrowserManager {
 					return undefined;
 				}
 
-				const targetCheckbox = event.target.closest('input[type="checkbox"]');
-				if (targetCheckbox instanceof HTMLInputElement && isCheckboxElement(targetCheckbox)) {
-					return targetCheckbox;
+				const targetCheckable = event.target.closest('input[type="checkbox"], input[type="radio"]');
+				if (targetCheckable instanceof HTMLInputElement && isCheckableElement(targetCheckable)) {
+					return targetCheckable;
 				}
 
 				const label = event.target.closest('label');
-				return label instanceof HTMLLabelElement && label.control instanceof HTMLInputElement && isCheckboxElement(label.control)
+				return label instanceof HTMLLabelElement && label.control instanceof HTMLInputElement && isCheckableElement(label.control)
 					? label.control
 					: undefined;
 			}
 
 			function captureCheckboxChange(element: HTMLInputElement): void {
+				// Radios can't be unchecked directly; only capture them when checked.
+				if (isRadioElement(element) && !element.checked) {
+					return;
+				}
 				if (!globalWindow.webTestFlowRecorderCapture || lastCheckboxStates.get(element) === element.checked) {
 					return;
 				}
@@ -596,7 +670,7 @@ export class BrowserManager {
 				if (!(target instanceof Element) || !globalWindow.webTestFlowRecorderCapture) {
 					return;
 				}
-				if (checkboxElementFromEvent(event)) {
+				if (checkableElementFromEvent(event)) {
 					return;
 				}
 
@@ -633,14 +707,14 @@ export class BrowserManager {
 			}, true);
 
 			document.addEventListener('change', (event: Event) => {
-			const checkbox = checkboxElementFromEvent(event);
-			if (checkbox) {
-				const pendingTimer = pendingInputTimers.get(checkbox);
+			const checkable = checkableElementFromEvent(event);
+			if (checkable) {
+				const pendingTimer = pendingInputTimers.get(checkable);
 				if (pendingTimer !== undefined) {
 					window.clearTimeout(pendingTimer);
-					pendingInputTimers.delete(checkbox);
+					pendingInputTimers.delete(checkable);
 				}
-				captureCheckboxChange(checkbox);
+				captureCheckboxChange(checkable);
 				return;
 			}
 
