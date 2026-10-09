@@ -933,17 +933,27 @@ function App() {
                         </button>
                         <span className="action-number" aria-label={`Action ${index + 1}`}>{index + 1}.</span>
                         <span className={`action-type ${action.type.startsWith('assert-') ? 'assertion' : ''}`}>
-                          {action.type.startsWith('assert-') ? 'Assertion' : action.type === 'check' ? 'Check' : action.type === 'uncheck' ? 'Uncheck' : 'Action'}
+                          {action.type.startsWith('assert-')
+                            ? 'Assertion'
+                            : action.type === 'check'
+                              ? 'Check'
+                              : action.type === 'uncheck'
+                                ? 'Uncheck'
+                                : action.type === 'click'
+                                  ? 'Click'
+                                  : action.type === 'fill'
+                                    ? 'Fill'
+                                    : action.type === 'submit'
+                                      ? 'Submit'
+                                      : action.type === 'navigate'
+                                        ? 'Navigate'
+                                        : 'Action'}
                         </span>
                         {action.type === 'assert-url' ? <span className="action-detail">URL contains {JSON.stringify(action.value)}</span> : null}
                         {action.type === 'assert-text' ? <span className="action-detail">Text {JSON.stringify(action.text)} is visible</span> : null}
                         {action.type === 'assert-title' ? <span className="action-detail">Page title {JSON.stringify(action.title)}</span> : null}
                         {action.type === 'assert-state' ? <span className="action-detail">{action.playwright ?? action.selector} is {action.state}</span> : null}
                         {action.type === 'assert-element' ? <span className="action-detail">{action.playwright ?? action.selector} exists</span> : null}
-                        {action.type === 'navigate' ? <span className="action-detail">Navigate</span> : null}
-                        {action.type === 'click' ? <span className="action-detail">Click</span> : null}
-                        {action.type === 'fill' ? <span className="action-detail">Fill</span> : null}
-                        {action.type === 'submit' ? <span className="action-detail">Press Enter</span> : null}
                         {'url' in action && action.url ? <span className="action-detail" title={action.url}>{action.url}</span> : null}
                         {'selector' in action && action.selector && !action.type.startsWith('assert-') ? (
                           <span
