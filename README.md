@@ -15,6 +15,24 @@
 
 ---
 
+## Table of Contents
+
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Typical Workflow](#typical-workflow)
+- [Locator Strategy](#locator-strategy)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Testing Workflow](#testing-workflow)
+- [Security & Reliability Considerations](#security--reliability-considerations)
+- [Roadmap](#roadmap)
+- [Current Scope](#current-scope)
+- [Limitations](#limitations)
+
+---
+
 ## Screenshots
 
 | Test Recording | Test Results |
