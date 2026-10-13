@@ -328,18 +328,18 @@ Security-header results can differ between scanners because websites may return 
 
 ### Completed
 
-- [x] Phase 1 — Desktop Application
-- [x] Phase 2 — Playwright Integration
-- [x] Phase 3 — Action Recording
-- [x] Phase 4 — Recording Storage & Export
-- [x] Phase 5 — Test Replay
-- [x] Phase 6 — Security Header Analyzer
-- [x] Phase 7 — Test Assertions
-- [x] Phase 8 — Test Results
+- [x] Phase 1 - Desktop Application
+- [x] Phase 2 - Playwright Integration
+- [x] Phase 3 - Action Recording
+- [x] Phase 4 - Recording Storage & Export
+- [x] Phase 5 - Test Replay
+- [x] Phase 6 - Security Header Analyzer
+- [x] Phase 7 - Test Assertions
+- [x] Phase 8 - Test Results
 
 ### Future
 
-- [ ] Phase 9 — Advanced Test Execution
+- [ ] Phase 9 - Advanced Test Execution
   - [ ] Test suites
   - [ ] Run multiple tests
   - [ ] Smoke-test suites
@@ -371,15 +371,3 @@ The Security Header Analyzer is a separate utility for quickly checking common H
 - Some websites may block automated requests or browser automation.
 - Security-header results can vary when a website uses Cloudflare or another WAF/CDN.
 - The advanced test-suite features in Phase 9 are not implemented yet.
-
----
-
-## Project Documentation
-
-The repository can contain two levels of documentation:
-
-- **`README.md`** — public project overview, setup, features, architecture, and roadmap.
-- **Project guide / technical notes** — deeper explanations of implementation details and interview talking points.
-
-Keeping the public README focused makes the GitHub repository easier to understand while allowing detailed technical documentation to remain available separately.
-
